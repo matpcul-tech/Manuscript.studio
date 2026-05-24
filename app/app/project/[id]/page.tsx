@@ -286,6 +286,59 @@ function SetupStage({ data, updateData, onNext }: any) {
 /* ==================== VOICE STAGE ==================== */
 function VoiceStage({ data, updateData, toast }: any) {
   const [studying, setStudying] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<{ name: string; words: number; size: number }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFiles(files: FileList | File[]) {
+    const list = Array.from(files);
+    if (!list.length) return;
+    setParsing(true);
+    try {
+      const { parseFile } = await import('@/lib/file-parser');
+      const results = await Promise.all(
+        list.map(f =>
+          parseFile(f).then(
+            r => ({ ok: true as const, value: r }),
+            (err: any) => ({ ok: false as const, name: f.name, error: err?.message || 'Could not read file' })
+          )
+        )
+      );
+      const successes = results.filter((r): r is { ok: true; value: { name: string; size: number; text: string; words: number } } => r.ok).map(r => r.value);
+      const failures = results.filter((r): r is { ok: false; name: string; error: string } => !r.ok);
+      if (failures.length) {
+        toast(`${failures[0].name}: ${failures[0].error}`, 'error');
+      }
+      if (!successes.length) return;
+      const joined = successes.map(s => s.text).join('\n\n');
+      const existing = data.voiceSample || '';
+      const next = existing.trim() ? existing.trimEnd() + '\n\n' + joined : joined;
+      updateData((d: ProjectData) => ({ ...d, voiceSample: next }));
+      setUploadedFiles(prev => [
+        ...prev,
+        ...successes.map(s => ({ name: s.name, words: s.words, size: s.size })),
+      ]);
+      const totalWords = successes.reduce((n, s) => n + s.words, 0);
+      toast(`Added ${totalWords.toLocaleString()} words from ${successes.length} file${successes.length === 1 ? '' : 's'}.`, 'success');
+    } catch (e: any) {
+      toast(e?.message || 'Could not read files.', 'error');
+    } finally {
+      setParsing(false);
+    }
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    if (e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+  }
+
+  function clearSample() {
+    if (!confirm('Clear the voice sample and trained profile?')) return;
+    updateData((d: ProjectData) => ({ ...d, voiceSample: '', voiceProfile: '' }));
+    setUploadedFiles([]);
+  }
 
   async function study() {
     if (countWords(data.voiceSample) < 100) { toast('Add at least 100 words.', 'error'); return; }
@@ -310,18 +363,81 @@ function VoiceStage({ data, updateData, toast }: any) {
     <div className="h-full overflow-y-auto p-10">
       <div className="max-w-5xl mx-auto">
         <h2 className="font-display text-3xl font-semibold mb-1.5">Train your voice</h2>
-        <p className="text-[var(--ink-3)] mb-7 max-w-2xl">Paste a sample of your own writing. The longer and more honest, the better the match.</p>
+        <p className="text-[var(--ink-3)] mb-7 max-w-2xl">Upload past writing or paste a sample. The longer and more honest, the better the match. Files stay in your browser.</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,320px] gap-5">
           <div className="bg-white border border-[var(--line)] rounded-xl p-6 shadow-sm">
             <Field label="Voice sample" hint="500 words is enough. 2,000 to 3,000 ideal. Past writing, blog posts, journal entries.">
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl px-6 py-7 mb-4 cursor-pointer transition text-center ${
+                  dragOver
+                    ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
+                    : 'border-[var(--line)] hover:border-[var(--blue)] hover:bg-[var(--bg-2)]'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".txt,.md,.docx,.pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                  className="hidden"
+                  onChange={e => {
+                    if (e.target.files) handleFiles(e.target.files);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                />
+                <div className="mx-auto w-11 h-11 rounded-full bg-[var(--blue-soft)] grid place-items-center mb-3 text-[var(--blue-deep)]">
+                  {parsing ? (
+                    <span className="dots"><span></span><span></span><span></span></span>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="17 8 12 3 7 8" />
+                      <line x1="12" y1="3" x2="12" y2="15" />
+                    </svg>
+                  )}
+                </div>
+                <div className="text-sm font-semibold text-[var(--ink-2)]">
+                  {parsing ? 'Reading files...' : 'Drop files here or click to upload'}
+                </div>
+                <div className="text-xs text-[var(--ink-3)] mt-1">
+                  .txt, .md, .docx, .pdf · multiple files OK · stays in your browser
+                </div>
+              </div>
+
+              {uploadedFiles.length > 0 && (
+                <div className="space-y-1.5 mb-4">
+                  {uploadedFiles.map((f, i) => (
+                    <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--bg-2)] text-xs">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-[var(--ink-4)] flex-shrink-0">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                        <polyline points="14 2 14 8 20 8" />
+                      </svg>
+                      <span className="flex-1 truncate text-[var(--ink-2)]">{f.name}</span>
+                      <span className="text-[var(--ink-3)] tabular-nums">{f.words.toLocaleString()} words</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <textarea
                 value={data.voiceSample}
                 onChange={e => updateData((d: ProjectData) => ({ ...d, voiceSample: e.target.value }))}
-                className={textareaCls + ' min-h-[280px]'}
-                placeholder="Paste your writing here..."
+                className={textareaCls + ' min-h-[200px]'}
+                placeholder="Or paste writing here..."
               />
-              <div className="mt-2 text-xs text-[var(--ink-3)]"><b>{countWords(data.voiceSample).toLocaleString()}</b> words</div>
+              <div className="mt-2 flex items-center justify-between">
+                <div className="text-xs text-[var(--ink-3)]"><b>{countWords(data.voiceSample).toLocaleString()}</b> words</div>
+                {data.voiceSample && (
+                  <button onClick={clearSample} className="text-xs text-[var(--ink-4)] hover:text-[var(--red)] font-medium">
+                    Clear all
+                  </button>
+                )}
+              </div>
             </Field>
             <Field label="Extra voice notes (optional)" hint="Anything the sample might not show. Words you avoid, sentence moves you favor.">
               <textarea
@@ -368,7 +484,13 @@ function WriteStage({ data, updateData, toast }: any) {
   const [draftModal, setDraftModal] = useState(false);
   const [rewriteModal, setRewriteModal] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [quickBusy, setQuickBusy] = useState<'' | 'outline' | 'opening'>('');
+  const [quickStatus, setQuickStatus] = useState('');
   const editorRef = useRef<HTMLTextAreaElement>(null);
+
+  const hasAnyContent = data.chapters.some((ch: Chapter) => ch.scenes.some((sc: Scene) => sc.body.trim().length > 0));
+  const isFreshProject = data.chapters.length === 1 && data.chapters[0].scenes.length === 1 && !hasAnyContent;
+  const showQuickDraft = data.writeMode === 'quick' && isFreshProject;
 
   const ctx = findScene(data, data.activeSceneId) || { chapter: data.chapters[0], scene: data.chapters[0].scenes[0] };
 
@@ -555,6 +677,196 @@ function WriteStage({ data, updateData, toast }: any) {
     }
   }
 
+  async function generateQuickDraft() {
+    if (data.quickPrompt.trim().length < 20) {
+      toast('Tell us a bit more about what you want to write.', 'error');
+      return;
+    }
+    const targetWords = data.quickWordTarget;
+    let chapterCount: number;
+    if (targetWords <= 3000) chapterCount = 1;
+    else if (targetWords <= 8000) chapterCount = 3;
+    else if (targetWords <= 20000) chapterCount = 5;
+    else if (targetWords <= 40000) chapterCount = 8;
+    else if (targetWords <= 70000) chapterCount = 12;
+    else chapterCount = 18;
+
+    setQuickBusy('outline');
+    setQuickStatus(`Planning ${chapterCount} chapters...`);
+    try {
+      const outlineJson = await callEngine({
+        task: '',
+        userPrompt: `Book description:\n${data.quickPrompt}\n\nTarget length: ${targetWords.toLocaleString()} words across ${chapterCount} chapters.${data.title ? `\nWorking title: ${data.title}` : ''}${data.genre ? `\nGenre: ${data.genre}` : ''}`,
+        systemOverride: `You are a book outliner. Read the description and produce a chapter outline as STRICT JSON only.
+
+RULES:
+- Exactly ${chapterCount} chapters.
+- Evocative, specific chapter titles. NOT generic placeholders like "The Beginning" or "Chapter 1". No throat-clearing.
+- One sentence per synopsis.
+- Arc proportional to chapter count: setup, complication, midpoint, escalation, climax, resolution.
+- Never use em dashes or en dashes.
+- Return ONLY this JSON shape, nothing else. No markdown fences, no preamble, no commentary:
+
+{
+  "title": "Book Title",
+  "chapters": [
+    { "title": "Chapter Title", "synopsis": "One sentence." }
+  ]
+}`,
+        maxTokens: 2500,
+      });
+
+      let outline: { title: string; chapters: { title: string; synopsis: string }[] };
+      try {
+        const stripped = outlineJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+        outline = JSON.parse(stripped);
+      } catch {
+        throw new Error('Could not parse outline. Try a more specific description.');
+      }
+      if (!outline.chapters || outline.chapters.length === 0) {
+        throw new Error('Outline came back empty. Try again.');
+      }
+
+      setQuickBusy('opening');
+      setQuickStatus('Writing the opening chapter...');
+      const wordsPerChapter = Math.round(targetWords / outline.chapters.length);
+      const openingTarget = Math.min(wordsPerChapter, 2500);
+      const outlineList = outline.chapters.map((c, i) => `${i + 1}. ${c.title}: ${c.synopsis}`).join('\n');
+      const opening = await callEngine({
+        task: `TASK: Write the opening of this book. About ${openingTarget} words. Establish the world, the voice, and the first conflict or question. Make the reader want to keep going. Open at the first real sentence, no throat-clearing.`,
+        userPrompt: `Book description:\n${data.quickPrompt}\n\nChapter 1 title: ${outline.chapters[0].title}\nChapter 1 synopsis: ${outline.chapters[0].synopsis}\n\nFull outline for context:\n${outlineList}`,
+        voiceSample: data.voiceSample,
+        voiceProfile: data.voiceProfile,
+        voiceNotes: data.voiceNotes,
+        maxTokens: 4000,
+      });
+
+      const newChapters: Chapter[] = outline.chapters.map((c, i) => {
+        if (i === 0) {
+          return {
+            id: cid(),
+            title: c.title,
+            open: true,
+            scenes: [{ id: cid(), title: 'Opening', body: opening }],
+          };
+        }
+        return {
+          id: cid(),
+          title: c.title,
+          open: false,
+          scenes: [{ id: cid(), title: c.synopsis.slice(0, 50), body: '' }],
+        };
+      });
+
+      updateData((d: ProjectData) => ({
+        ...d,
+        title: d.title || outline.title || '',
+        chapters: newChapters,
+        activeSceneId: newChapters[0].scenes[0].id,
+        writeMode: 'manual',
+      }));
+      toast(`Drafted Chapter 1 plus ${outline.chapters.length - 1} more chapter outlines. Keep writing.`, 'success');
+    } catch (e: any) {
+      toast(e?.message || 'Generation failed.', 'error');
+    } finally {
+      setQuickBusy('');
+      setQuickStatus('');
+    }
+  }
+
+  if (showQuickDraft) {
+    return (
+      <div className="h-full overflow-y-auto bg-[var(--bg-2)]">
+        <div className="max-w-2xl mx-auto py-12 px-6">
+          <div className="flex justify-center mb-8">
+            <div className="flex gap-1 bg-white border border-[var(--line)] p-1 rounded-[10px] shadow-sm">
+              <button
+                className="px-3.5 py-1.5 rounded-[7px] text-[13px] font-semibold bg-[var(--blue-soft)] text-[var(--blue-deep)] shadow-sm"
+              >
+                Quick Draft
+              </button>
+              <button
+                onClick={() => updateData((d: ProjectData) => ({ ...d, writeMode: 'manual' }))}
+                className="px-3.5 py-1.5 rounded-[7px] text-[13px] font-medium text-[var(--ink-3)] hover:text-[var(--ink)] transition"
+              >
+                Manual Chapters
+              </button>
+            </div>
+          </div>
+          <h2 className="font-display text-4xl font-semibold mb-2 text-center tracking-tight">What do you want to write?</h2>
+          <p className="text-[var(--ink-3)] mb-8 text-center max-w-lg mx-auto">Describe your book in a few sentences. We will outline the chapters and draft the opening in your voice.</p>
+
+          {quickBusy ? (
+            <div className="bg-white border border-[var(--line)] rounded-2xl p-12 text-center shadow-sm">
+              <div className="text-[var(--blue-deep)] mb-4 text-2xl">
+                <span className="dots inline-flex"><span></span><span></span><span></span></span>
+              </div>
+              <h3 className="font-display text-xl font-semibold mb-2">{quickStatus}</h3>
+              <p className="text-sm text-[var(--ink-3)]">This takes about 30 to 60 seconds.</p>
+            </div>
+          ) : (
+            <div className="bg-white border border-[var(--line)] rounded-2xl p-8 shadow-sm space-y-5">
+              <Field label="Your book in your own words" hint="A paragraph is enough. The more specific, the better the opening.">
+                <textarea
+                  value={data.quickPrompt}
+                  onChange={e => updateData((d: ProjectData) => ({ ...d, quickPrompt: e.target.value }))}
+                  className={textareaCls + ' min-h-[140px]'}
+                  placeholder="A literary novel about a casino floor supervisor who watches the building breathe before it fills with people. Set on Chickasaw land in the early 2000s, told in a quiet, observational voice."
+                />
+              </Field>
+              <Field label="How long?">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { label: 'Short story', words: 3000, sub: '3k words' },
+                    { label: 'Novella', words: 20000, sub: '20k words' },
+                    { label: 'Novel', words: 60000, sub: '60k words' },
+                    { label: 'Long novel', words: 90000, sub: '90k words' },
+                  ].map(opt => (
+                    <button
+                      key={opt.words}
+                      onClick={() => updateData((d: ProjectData) => ({ ...d, quickWordTarget: opt.words }))}
+                      className={`p-3 rounded-lg border-2 text-center transition ${
+                        data.quickWordTarget === opt.words
+                          ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
+                          : 'border-[var(--line)] hover:border-[var(--blue)]/40'
+                      }`}
+                    >
+                      <div className="text-sm font-semibold text-[var(--ink-2)]">{opt.label}</div>
+                      <div className="text-xs text-[var(--ink-3)] mt-0.5 tabular-nums">{opt.sub}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3">
+                  <label className="block text-xs text-[var(--ink-3)] font-medium mb-1">Or custom word count</label>
+                  <input
+                    type="number"
+                    value={data.quickWordTarget}
+                    onChange={e => updateData((d: ProjectData) => ({ ...d, quickWordTarget: parseInt(e.target.value) || 0 }))}
+                    className={inputCls}
+                  />
+                </div>
+              </Field>
+              {!data.voiceSample && (
+                <div className="bg-[var(--amber-soft)] border border-[var(--amber)]/30 rounded-lg px-4 py-3 text-xs text-[#92400e] leading-relaxed">
+                  No voice trained yet. We will write in a clean default voice. For better results, go to the Voice stage first.
+                </div>
+              )}
+              <button
+                onClick={generateQuickDraft}
+                className="w-full px-5 py-3.5 rounded-lg bg-gradient-to-br from-[var(--blue)] to-[var(--blue-deep)] hover:opacity-95 text-white font-semibold shadow-[0_4px_14px_rgba(79,109,245,0.4)] transition flex items-center justify-center gap-2"
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                  <polygon points="5 3 19 12 5 21 5 3" />
+                </svg>
+                Generate manuscript
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full grid grid-cols-[260px,1fr] overflow-hidden">
       {/* TREE */}
@@ -623,7 +935,18 @@ function WriteStage({ data, updateData, toast }: any) {
 
       {/* EDITOR */}
       <main className="flex flex-col overflow-hidden bg-[var(--bg-2)]">
-        <div className="h-11 bg-white border-b border-[var(--line)] flex items-center px-6 gap-1">
+        <div className="h-11 bg-white border-b border-[var(--line)] flex items-center px-6 gap-2">
+          {!hasAnyContent && (
+            <button
+              onClick={() => updateData((d: ProjectData) => ({ ...d, writeMode: 'quick' }))}
+              className="text-xs text-[var(--blue-deep)] hover:text-[var(--blue)] font-semibold flex items-center gap-1.5 px-2 py-1 rounded hover:bg-[var(--blue-soft)] transition"
+            >
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
+                <polygon points="5 3 19 12 5 21 5 3" />
+              </svg>
+              Quick Draft instead
+            </button>
+          )}
           <div className="ml-auto px-3 py-1 bg-[var(--bg-3)] rounded-full text-xs text-[var(--ink-3)] tabular-nums">
             <b className="text-[var(--blue-deep)]">{countWords(ctx.scene.body)}</b> words in scene
           </div>

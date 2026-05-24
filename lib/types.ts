@@ -40,6 +40,10 @@ export type ProjectData = {
   overlayAmt: number;
   // ui
   currentStage: string;
+  // write mode
+  writeMode: 'quick' | 'manual';
+  quickPrompt: string;
+  quickWordTarget: number;
 };
 
 export function cid(): string {
@@ -72,5 +76,8 @@ export function defaultProjectData(): ProjectData {
     titleColor: '#ffffff',
     overlayAmt: 35,
     currentStage: 'setup',
+    writeMode: 'quick',
+    quickPrompt: '',
+    quickWordTarget: 60000,
   };
 }
