@@ -113,7 +113,7 @@ export default function LandingPage() {
               { n: '01', title: 'Setup', body: 'Title, subtitle, author, trim size, ISBN, dedication, bio. Everything that lands on the cover and in the front matter.' },
               { n: '02', title: 'Voice', body: 'Paste a sample of your own writing. The studio learns your cadence, sentence length, vocabulary, and the small habits that make your prose sound like you.' },
               { n: '03', title: 'Write', body: 'Draft scenes in your voice. Continue from anywhere. Rewrite selections six different ways. No em dashes, no chatbot vocabulary, ever.' },
-              { n: '04', title: 'Edit', body: 'AI-tell scanner, voice consistency check, line editor, pacing review. Run any pass on a scene, chapter, or the whole manuscript.' },
+              { n: '04', title: 'Edit', body: 'AI Detection Score grades your manuscript A through F. Voice consistency check, line editor, pacing review. Strip the patterns KDP flags.' },
               { n: '05', title: 'Cover', body: 'Eight palette presets, five title fonts, real typography control. Download a 1600×2560 cover ready for KDP.' },
               { n: '06', title: 'Publish', body: 'Export .docx, KDP-ready EPUB 3.0 with nav, print interior PDF with mirrored margins and trim-correct page setup. Upload to KDP and ship.' },
             ].map(item => (
@@ -147,7 +147,7 @@ export default function LandingPage() {
             </div>
             {[
               ['Voice-trained AI writing', '✓', '~', '✗', '✗'],
-              ['AI tell scrubber', '✓', '✗', '✗', '✗'],
+              ['AI Detection Score (KDP-aware)', '✓', '✗', '✗', '✗'],
               ['Voice consistency check', '✓', '~', '✗', '✗'],
               ['Cover designer', '✓', '✗', '✗', '✗'],
               ['KDP-ready EPUB 3.0', '✓', '✗', '✓', '✓'],

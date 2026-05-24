@@ -70,3 +70,52 @@ export function countWords(s: string): number {
   if (!s) return 0;
   return (s.trim().match(/\S+/g) || []).length;
 }
+
+export type AIScore = {
+  density: number;
+  totalTells: number;
+  totalWords: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  risk: string;
+  color: string;
+  byPattern: { label: string; count: number }[];
+};
+
+export function computeAIScore(text: string): AIScore {
+  const totalWords = countWords(text);
+  const byPattern: { label: string; count: number }[] = [];
+  let totalTells = 0;
+  TELL_PATTERNS.forEach(tp => {
+    const m = text.match(tp.p);
+    if (m && m.length) {
+      byPattern.push({ label: tp.label, count: m.length });
+      totalTells += m.length;
+    }
+  });
+  const density = totalWords === 0 ? 0 : (totalTells / totalWords) * 1000;
+  let grade: AIScore['grade'];
+  let risk: string;
+  let color: string;
+  if (density < 0.5) {
+    grade = 'A';
+    risk = 'No discernible AI fingerprint';
+    color = '#10b981';
+  } else if (density < 1.5) {
+    grade = 'B';
+    risk = 'Clean. Occasional pattern.';
+    color = '#10b981';
+  } else if (density < 3.0) {
+    grade = 'C';
+    risk = 'Noticeable. Recommend scrub before publish.';
+    color = '#f59e0b';
+  } else if (density < 5.0) {
+    grade = 'D';
+    risk = 'Heavy. Likely to flag on KDP review.';
+    color = '#f59e0b';
+  } else {
+    grade = 'F';
+    risk = 'Will read as AI-generated. Scrub required.';
+    color = '#ef4444';
+  }
+  return { density, totalTells, totalWords, grade, risk, color, byPattern };
+}

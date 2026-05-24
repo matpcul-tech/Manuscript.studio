@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { callEngine, scrubText, TELL_PATTERNS, countWords } from '@/lib/engine';
+import { callEngine, scrubText, countWords, computeAIScore, type AIScore } from '@/lib/engine';
 import { exportDocx, exportEpub, exportPdf, exportBundle } from '@/lib/exports';
 import { defaultProjectData, cid, type ProjectData, type Chapter, type Scene } from '@/lib/types';
 
@@ -685,7 +685,6 @@ function WriteStage({ data, updateData, toast }: any) {
 function EditStage({ data, updateData, toast, activeScene }: any) {
   const [scope, setScope] = useState('scene');
   const [scopeCh, setScopeCh] = useState(data.chapters[0]?.id || '');
-  const [scrubFound, setScrubFound] = useState<any[]>([]);
   const [busy, setBusy] = useState('');
   const [consistencyResult, setConsistencyResult] = useState('');
   const [pacingResult, setPacingResult] = useState('');
@@ -703,16 +702,7 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
   }
 
   const target = getTarget();
-
-  function runScan() {
-    if (!target.text.trim()) { toast('Empty.', 'error'); return; }
-    const found: any[] = [];
-    TELL_PATTERNS.forEach(tp => {
-      const m = target.text.match(tp.p);
-      if (m && m.length) found.push({ label: tp.label, count: m.length });
-    });
-    setScrubFound(found);
-  }
+  const aiScore: AIScore = computeAIScore(target.text);
 
   function applyScrub() {
     updateData((d: ProjectData) => {
@@ -726,7 +716,6 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
       }
       return next;
     });
-    setScrubFound([]);
     toast('Tells removed.', 'success');
   }
 
@@ -801,7 +790,7 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
     <div className="h-full overflow-y-auto p-9">
       <div className="max-w-[1320px] mx-auto">
         <h2 className="font-display text-3xl font-semibold mb-1.5">Edit and polish</h2>
-        <p className="text-[var(--ink-3)] mb-6">Strip AI fingerprints, run a line edit, check voice consistency, review pacing.</p>
+        <p className="text-[var(--ink-3)] mb-6">Watch your AI Detection Score, strip the patterns Amazon flags, run a line edit, check voice consistency.</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-5">
           <div className="bg-white rounded-xl border border-[var(--line)] p-10 shadow-sm max-h-[calc(100vh-180px)] overflow-y-auto font-serif text-[16px] leading-[1.78] text-[var(--ink)] whitespace-pre-wrap">
@@ -825,24 +814,49 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
             </div>
 
             <div className={editCard}>
-              <h4 className="font-display text-[17px] font-semibold mb-1">Scan for AI tells</h4>
-              <p className="text-xs text-[var(--ink-3)] mb-3">Em dashes, hedge phrases, chatbot vocabulary.</p>
-              <button onClick={runScan} className={btnGhostFull}>Run scan</button>
-              {scrubFound.length > 0 && (
-                <div className="mt-3">
-                  <div className="text-xs font-medium text-[var(--ink-2)] mb-2">{scrubFound.reduce((a, b) => a + b.count, 0)} tells across {scrubFound.length} patterns:</div>
-                  <div className="mb-3">
-                    {scrubFound.map(f => (
-                      <span key={f.label} className="inline-flex items-center gap-1 bg-[var(--amber-soft)] text-[#92400e] px-2 py-1 rounded-full text-[11.5px] font-medium mr-1 mb-1">
-                        {f.label} · <b>{f.count}</b>
-                      </span>
-                    ))}
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <h4 className="font-display text-[17px] font-semibold">AI Detection Score</h4>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--green-soft)] text-[var(--green)] text-[10px] font-bold tracking-wider uppercase flex-shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)] animate-pulse" />
+                  Live
+                </span>
+              </div>
+              <p className="text-xs text-[var(--ink-3)] mb-3">How likely this reads as AI-generated. Tuned against the patterns KDP review flags.</p>
+              {aiScore.totalWords === 0 ? (
+                <div className="text-center py-6 text-[var(--ink-4)] italic text-sm">Write something to see your score.</div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: aiScore.color + '14', border: `1px solid ${aiScore.color}30` }}>
+                    <div className="w-[68px] h-[68px] rounded-lg grid place-items-center flex-shrink-0 font-display font-bold text-[42px] text-white" style={{ background: aiScore.color }}>
+                      {aiScore.grade}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="font-display font-bold text-[15px]" style={{ color: aiScore.color }}>
+                        {aiScore.density.toFixed(2)} tells per 1k words
+                      </div>
+                      <div className="text-xs text-[var(--ink-2)] mt-1 leading-snug">{aiScore.risk}</div>
+                    </div>
                   </div>
-                  <button onClick={applyScrub} className={btnPrimaryFull}>Fix all</button>
-                </div>
-              )}
-              {scrubFound.length === 0 && (
-                <button onClick={runScan} className="hidden">.</button>
+                  {aiScore.byPattern.length > 0 ? (
+                    <div className="mt-3">
+                      <div className="mb-3 flex flex-wrap gap-1">
+                        {aiScore.byPattern.map(p => (
+                          <span key={p.label} className="inline-flex items-center gap-1 bg-[var(--amber-soft)] text-[#92400e] px-2 py-1 rounded-full text-[11.5px] font-medium">
+                            {p.label} · <b>{p.count}</b>
+                          </span>
+                        ))}
+                      </div>
+                      <button onClick={applyScrub} className={btnPrimaryFull}>Fix all tells</button>
+                    </div>
+                  ) : (
+                    <div className="mt-3 flex items-center gap-2 text-xs text-[var(--green)] font-semibold">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      Clean. No AI tells detected.
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -1046,8 +1060,10 @@ function PublishStage({ data, toast }: any) {
 
   const totalW = data.chapters.reduce((n: number, ch: Chapter) => n + ch.scenes.reduce((m: number, sc: Scene) => m + countWords(sc.body), 0), 0);
   const fullText = data.chapters.map((ch: Chapter) => ch.scenes.map((s: Scene) => s.body).join('\n\n')).join('\n\n');
-  let tellCount = 0;
-  TELL_PATTERNS.forEach(p => { const m = fullText.match(p.p); if (m) tellCount += m.length; });
+  const score = computeAIScore(fullText);
+  const scoreOk = score.grade === 'A' || score.grade === 'B';
+  const scoreWarn = score.grade === 'C' || score.grade === 'D';
+  const scoreBad = score.grade === 'F';
 
   const items = [
     { label: 'Title set', ok: !!data.title.trim() },
@@ -1055,7 +1071,7 @@ function PublishStage({ data, toast }: any) {
     { label: 'Voice profile trained', ok: !!data.voiceSample, warn: !data.voiceSample },
     { label: `Manuscript: ${totalW.toLocaleString()} words`, ok: totalW >= 5000, warn: totalW < 5000 && totalW > 0, bad: totalW === 0 },
     { label: `${data.chapters.length} chapter${data.chapters.length === 1 ? '' : 's'}`, ok: data.chapters.length > 0 },
-    { label: tellCount === 0 ? 'No AI tells detected' : `${tellCount} AI tells found (run Stage 4 scrub)`, ok: tellCount === 0, warn: tellCount > 0 },
+    { label: totalW === 0 ? 'AI Detection Score: not yet measured' : `AI Detection Score: ${score.grade} · ${score.density.toFixed(2)} per 1k words`, ok: totalW === 0 ? false : scoreOk, warn: scoreWarn, bad: scoreBad },
     { label: `Trim size: ${data.trim} in`, ok: true },
   ];
 
