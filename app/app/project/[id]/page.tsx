@@ -1211,18 +1211,84 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
     return JSON.parse(cleaned);
   }
 
-  // Apply a single rewrite to the target text in-place across the manuscript
-  function applyIssueRewrite(issue: Issue) {
-    const passage = issue.passage;
-    const rewrite = issue.rewrite;
-    if (!passage || !rewrite) { toast('No rewrite provided for this issue.', 'error'); return; }
+  // Normalize text for fuzzy matching: smart quotes, non-breaking spaces, and
+  // whitespace runs all collapse to comparable forms. Used as a cheap gate
+  // before the regex fallback so we skip work when there is clearly no match.
+  function normalizeForMatch(text: string): string {
+    return text
+      .replace(/[‘’‚‛]/g, "'")
+      .replace(/[“”„‟]/g, '"')
+      .replace(/ /g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
 
+  // Build a regex that matches the passage while tolerating whitespace runs
+  // and smart-vs-straight quote variants. Returns null if the pattern fails
+  // to compile.
+  function buildFuzzyRegex(passage: string): RegExp | null {
+    try {
+      let pattern = '';
+      let i = 0;
+      while (i < passage.length) {
+        const c = passage[i];
+        if (/\s/.test(c)) {
+          pattern += '\\s+';
+          while (i < passage.length && /\s/.test(passage[i])) i++;
+          continue;
+        }
+        if (c === "'" || c === '‘' || c === '’' || c === '‚' || c === '‛') {
+          pattern += "['‘’‚‛]";
+          i++; continue;
+        }
+        if (c === '"' || c === '“' || c === '”' || c === '„' || c === '‟') {
+          pattern += '["“”„‟]';
+          i++; continue;
+        }
+        if (/[.*+?^${}()|[\]\\]/.test(c)) {
+          pattern += '\\' + c;
+        } else {
+          pattern += c;
+        }
+        i++;
+      }
+      return new RegExp(pattern);
+    } catch {
+      return null;
+    }
+  }
+
+  // Try to apply one rewrite to a string. Returns the new text and whether
+  // the replacement actually landed. Exact match first, then a fuzzy regex
+  // that tolerates whitespace and quote differences.
+  function tryRewriteInText(text: string, passage: string, rewrite: string): { text: string; success: boolean } {
+    if (!passage || !rewrite) return { text, success: false };
+    if (text.includes(passage)) {
+      return { text: text.replace(passage, () => rewrite), success: true };
+    }
+    if (!normalizeForMatch(text).includes(normalizeForMatch(passage))) {
+      return { text, success: false };
+    }
+    const regex = buildFuzzyRegex(passage);
+    if (regex) {
+      const next = text.replace(regex, () => rewrite);
+      if (next !== text) return { text: next, success: true };
+    }
+    return { text, success: false };
+  }
+
+  // Apply a single rewrite across the current scope. Returns true if the
+  // text actually changed somewhere, false otherwise.
+  function applyIssueRewrite(issue: Issue): boolean {
+    if (!issue.passage || !issue.rewrite) return false;
+    let success = false;
+    const replaceFn = (text: string) => {
+      const r = tryRewriteInText(text, issue.passage, issue.rewrite);
+      if (r.success) success = true;
+      return r.text;
+    };
     updateData((d: ProjectData) => {
       const next = { ...d };
-      const replaceFn = (text: string) => {
-        if (text.includes(passage)) return text.replace(passage, rewrite);
-        return text;
-      };
       if (scope === 'scene') {
         next.chapters = next.chapters.map(ch => ({ ...ch, scenes: ch.scenes.map(s => s.id === d.activeSceneId ? { ...s, body: replaceFn(s.body) } : s) }));
       } else if (scope === 'chapter') {
@@ -1232,6 +1298,7 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
       }
       return next;
     });
+    return success;
   }
 
   async function checkConsistency() {
@@ -1261,7 +1328,9 @@ Rules:
 - The "passage" field MUST be an exact substring of the manuscript so it can be find-replaced
 - Rewrites must be in the trained voice, no em dashes, no chatbot vocabulary
 - If the passage is already consistent throughout, return { "issues": [] }
-- Return ONLY the JSON object. No markdown fences. No preamble.`,
+- Return ONLY the JSON object. No markdown fences. No preamble.
+
+CRITICAL: The "passage" field must be a VERBATIM substring of the manuscript. Copy it character-for-character. Do not paraphrase. Do not change quote style. Do not collapse whitespace. Do not add or remove punctuation. If you cannot find a passage you can quote exactly, do not include that issue. The application will fail silently if the passage does not match exactly.`,
         maxTokens: 3000,
       });
       const parsed = parseJsonResponse(result);
@@ -1310,7 +1379,9 @@ Rules:
 - Rewrites preserve meaning and voice, only fix pace
 - No em dashes, no chatbot vocabulary
 - If pacing is solid throughout, return { "issues": [] }
-- Return ONLY the JSON object. No markdown fences. No preamble.`,
+- Return ONLY the JSON object. No markdown fences. No preamble.
+
+CRITICAL: The "passage" field must be a VERBATIM substring of the manuscript. Copy it character-for-character. Do not paraphrase. Do not change quote style. Do not collapse whitespace. Do not add or remove punctuation. If you cannot find a passage you can quote exactly, do not include that issue. The application will fail silently if the passage does not match exactly.`,
         maxTokens: 3000,
       });
       const parsed = parseJsonResponse(result);
@@ -1388,11 +1459,15 @@ Rules:
     if (!issue || issue.applied) return;
 
     setApplyingId(id);
-    applyIssueRewrite(issue);
-    const next = list.map(i => i.id === id ? { ...i, applied: true } : i);
-    if (kind === 'cons') setConsistencyIssues(next); else setPacingIssues(next);
+    const applied = applyIssueRewrite(issue);
+    if (applied) {
+      const next = list.map(i => i.id === id ? { ...i, applied: true } : i);
+      if (kind === 'cons') setConsistencyIssues(next); else setPacingIssues(next);
+      toast('Applied.', 'success');
+    } else {
+      toast('Could not find that exact passage. The text may have changed. Try Re-run check to scan the current text.', 'error');
+    }
     setApplyingId('');
-    toast('Applied.', 'success');
   }
 
   function handleRejectIssue(kind: 'cons' | 'pace', id: string) {
@@ -1408,10 +1483,48 @@ Rules:
     const unapplied = list.filter(i => !i.applied);
     if (unapplied.length === 0) { toast('All fixes already applied.', 'success'); return; }
 
-    unapplied.forEach(issue => applyIssueRewrite(issue));
-    const next = list.map(i => ({ ...i, applied: true }));
-    if (kind === 'cons') setConsistencyIssues(next); else setPacingIssues(next);
-    toast(`Applied ${unapplied.length} fix${unapplied.length === 1 ? '' : 'es'}.`, 'success');
+    // Batch all rewrites into a single updateData call so each issue sees
+    // the running result. The closure-based updateData reads stale state
+    // if we loop applyIssueRewrite, so we apply them sequentially against
+    // the same accumulator inside one updater.
+    const successIds = new Set<string>();
+    const applyAllToText = (text: string) => {
+      let result = text;
+      unapplied.forEach(issue => {
+        if (successIds.has(issue.id)) return;
+        const r = tryRewriteInText(result, issue.passage, issue.rewrite);
+        if (r.success) {
+          result = r.text;
+          successIds.add(issue.id);
+        }
+      });
+      return result;
+    };
+
+    updateData((d: ProjectData) => {
+      const next = { ...d };
+      if (scope === 'scene') {
+        next.chapters = next.chapters.map(ch => ({ ...ch, scenes: ch.scenes.map(s => s.id === d.activeSceneId ? { ...s, body: applyAllToText(s.body) } : s) }));
+      } else if (scope === 'chapter') {
+        next.chapters = next.chapters.map(ch => ch.id !== scopeCh ? ch : { ...ch, scenes: ch.scenes.map(s => ({ ...s, body: applyAllToText(s.body) })) });
+      } else {
+        next.chapters = next.chapters.map(ch => ({ ...ch, scenes: ch.scenes.map(s => ({ ...s, body: applyAllToText(s.body) })) }));
+      }
+      return next;
+    });
+
+    const successCount = successIds.size;
+    const failCount = unapplied.length - successCount;
+    const nextList = list.map(i => successIds.has(i.id) ? { ...i, applied: true } : i);
+    if (kind === 'cons') setConsistencyIssues(nextList); else setPacingIssues(nextList);
+
+    if (successCount > 0 && failCount === 0) {
+      toast(`Applied ${successCount} fix${successCount === 1 ? '' : 'es'}.`, 'success');
+    } else if (successCount > 0 && failCount > 0) {
+      toast(`Applied ${successCount}, could not match ${failCount}. Try Re-run check.`, 'success');
+    } else {
+      toast('Could not apply any fixes. The text may have changed. Try Re-run check.', 'error');
+    }
   }
 
   return (
