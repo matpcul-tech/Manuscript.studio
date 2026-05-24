@@ -17,6 +17,22 @@ const STAGES = [
   { id: 'publish', label: 'Publish' },
 ];
 
+type Issue = {
+  id: string;
+  passage: string;
+  rewrite: string;
+  reason: string;
+  applied: boolean;
+};
+
+type StructureIssue = {
+  id: string;
+  kind: string;
+  where: string;
+  problem: string;
+  fix: string;
+};
+
 const COVER_PRESETS: Record<string, { bg: string[]; text: string; overlay: number }> = {
   midnight: { bg: ['#1a1f3a', '#2d1b4e'], text: '#ffffff', overlay: 35 },
   terracotta: { bg: ['#8b3a1f', '#4a1f12'], text: '#f4ead4', overlay: 30 },
@@ -293,36 +309,32 @@ function VoiceStage({ data, updateData, toast }: any) {
 
   async function handleFiles(files: FileList | File[]) {
     const list = Array.from(files);
-    if (!list.length) return;
+    if (list.length === 0) return;
     setParsing(true);
     try {
       const { parseFile } = await import('@/lib/file-parser');
-      const results = await Promise.all(
-        list.map(f =>
-          parseFile(f).then(
-            r => ({ ok: true as const, value: r }),
-            (err: any) => ({ ok: false as const, name: f.name, error: err?.message || 'Could not read file' })
-          )
-        )
-      );
-      const successes = results.filter((r): r is { ok: true; value: { name: string; size: number; text: string; words: number } } => r.ok).map(r => r.value);
-      const failures = results.filter((r): r is { ok: false; name: string; error: string } => !r.ok);
+      const parsed = await Promise.all(list.map(f => parseFile(f).catch(err => ({ error: err.message, name: f.name }))));
+
+      const successes = parsed.filter((p: any) => !p.error) as { name: string; size: number; text: string; words: number }[];
+      const failures = parsed.filter((p: any) => p.error) as { name: string; error: string }[];
+
       if (failures.length) {
-        toast(`${failures[0].name}: ${failures[0].error}`, 'error');
+        toast(`Could not read ${failures.length} file${failures.length === 1 ? '' : 's'}: ${failures[0].error}`, 'error');
       }
-      if (!successes.length) return;
-      const joined = successes.map(s => s.text).join('\n\n');
-      const existing = data.voiceSample || '';
-      const next = existing.trim() ? existing.trimEnd() + '\n\n' + joined : joined;
+
+      if (successes.length === 0) return;
+
+      const combined = successes.map(s => s.text).join('\n\n');
+      const existing = data.voiceSample.trim();
+      const next = existing ? existing + '\n\n' + combined : combined;
+
       updateData((d: ProjectData) => ({ ...d, voiceSample: next }));
-      setUploadedFiles(prev => [
-        ...prev,
-        ...successes.map(s => ({ name: s.name, words: s.words, size: s.size })),
-      ]);
+      setUploadedFiles(prev => [...prev, ...successes.map(s => ({ name: s.name, words: s.words, size: s.size }))]);
+
       const totalWords = successes.reduce((n, s) => n + s.words, 0);
       toast(`Added ${totalWords.toLocaleString()} words from ${successes.length} file${successes.length === 1 ? '' : 's'}.`, 'success');
     } catch (e: any) {
-      toast(e?.message || 'Could not read files.', 'error');
+      toast(e.message || 'Could not parse files.', 'error');
     } finally {
       setParsing(false);
     }
@@ -331,11 +343,12 @@ function VoiceStage({ data, updateData, toast }: any) {
   function onDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    if (e.dataTransfer.files) handleFiles(e.dataTransfer.files);
+    if (e.dataTransfer.files?.length) handleFiles(e.dataTransfer.files);
   }
 
   function clearSample() {
-    if (!confirm('Clear the voice sample and trained profile?')) return;
+    if (!data.voiceSample) return;
+    if (!confirm('Clear the voice sample and uploaded files?')) return;
     updateData((d: ProjectData) => ({ ...d, voiceSample: '', voiceProfile: '' }));
     setUploadedFiles([]);
   }
@@ -367,75 +380,72 @@ function VoiceStage({ data, updateData, toast }: any) {
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,320px] gap-5">
           <div className="bg-white border border-[var(--line)] rounded-xl p-6 shadow-sm">
-            <Field label="Voice sample" hint="500 words is enough. 2,000 to 3,000 ideal. Past writing, blog posts, journal entries.">
-              <div
-                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-                onDragLeave={() => setDragOver(false)}
-                onDrop={onDrop}
-                onClick={() => fileInputRef.current?.click()}
-                className={`border-2 border-dashed rounded-xl px-6 py-7 mb-4 cursor-pointer transition text-center ${
-                  dragOver
-                    ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
-                    : 'border-[var(--line)] hover:border-[var(--blue)] hover:bg-[var(--bg-2)]'
-                }`}
-              >
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  accept=".txt,.md,.docx,.pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
-                  className="hidden"
-                  onChange={e => {
-                    if (e.target.files) handleFiles(e.target.files);
-                    if (fileInputRef.current) fileInputRef.current.value = '';
-                  }}
-                />
-                <div className="mx-auto w-11 h-11 rounded-full bg-[var(--blue-soft)] grid place-items-center mb-3 text-[var(--blue-deep)]">
+            {/* Upload zone */}
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl px-6 py-7 mb-4 cursor-pointer transition text-center ${
+                dragOver
+                  ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
+                  : 'border-[var(--line)] hover:border-[var(--blue)] hover:bg-[var(--blue-tint)]'
+              }`}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".txt,.md,.docx,.pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                onChange={e => e.target.files && handleFiles(e.target.files)}
+                className="hidden"
+              />
+              <div className="flex items-center justify-center mb-2">
+                <div className="w-11 h-11 rounded-full bg-[var(--blue-soft)] text-[var(--blue-deep)] grid place-items-center">
                   {parsing ? (
                     <span className="dots"><span></span><span></span><span></span></span>
                   ) : (
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="17 8 12 3 7 8" />
-                      <line x1="12" y1="3" x2="12" y2="15" />
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                      <polyline points="17 8 12 3 7 8"/>
+                      <line x1="12" y1="3" x2="12" y2="15"/>
                     </svg>
                   )}
                 </div>
-                <div className="text-sm font-semibold text-[var(--ink-2)]">
-                  {parsing ? 'Reading files...' : 'Drop files here or click to upload'}
-                </div>
-                <div className="text-xs text-[var(--ink-3)] mt-1">
-                  .txt, .md, .docx, .pdf · multiple files OK · stays in your browser
-                </div>
               </div>
+              <div className="text-sm font-semibold text-[var(--ink-2)] mb-0.5">
+                {parsing ? 'Reading files...' : 'Drop files here or click to upload'}
+              </div>
+              <div className="text-xs text-[var(--ink-3)]">.txt, .md, .docx, .pdf · multiple files OK · stays in your browser</div>
+            </div>
 
-              {uploadedFiles.length > 0 && (
-                <div className="space-y-1.5 mb-4">
-                  {uploadedFiles.map((f, i) => (
-                    <div key={i} className="flex items-center gap-2 px-3 py-1.5 rounded-md bg-[var(--bg-2)] text-xs">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5 text-[var(--ink-4)] flex-shrink-0">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                        <polyline points="14 2 14 8 20 8" />
-                      </svg>
-                      <span className="flex-1 truncate text-[var(--ink-2)]">{f.name}</span>
-                      <span className="text-[var(--ink-3)] tabular-nums">{f.words.toLocaleString()} words</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+            {/* Uploaded files list */}
+            {uploadedFiles.length > 0 && (
+              <div className="mb-4 space-y-1.5">
+                {uploadedFiles.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-2)] rounded-lg text-xs">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 text-[var(--ink-3)] flex-shrink-0">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    <span className="flex-1 truncate font-medium text-[var(--ink-2)]">{f.name}</span>
+                    <span className="text-[var(--ink-4)] tabular-nums">{f.words.toLocaleString()} words</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
+            <Field label="Voice sample" hint="500 words is enough. 2,000 to 3,000 ideal. Past writing, blog posts, journal entries. Add more by uploading or pasting below.">
               <textarea
                 value={data.voiceSample}
                 onChange={e => updateData((d: ProjectData) => ({ ...d, voiceSample: e.target.value }))}
                 className={textareaCls + ' min-h-[200px]'}
                 placeholder="Or paste writing here..."
               />
-              <div className="mt-2 flex items-center justify-between">
-                <div className="text-xs text-[var(--ink-3)]"><b>{countWords(data.voiceSample).toLocaleString()}</b> words</div>
+              <div className="mt-2 flex items-center justify-between text-xs">
+                <span className="text-[var(--ink-3)]"><b>{countWords(data.voiceSample).toLocaleString()}</b> words</span>
                 {data.voiceSample && (
-                  <button onClick={clearSample} className="text-xs text-[var(--ink-4)] hover:text-[var(--red)] font-medium">
-                    Clear all
-                  </button>
+                  <button onClick={clearSample} className="text-[var(--ink-4)] hover:text-[var(--red)]">Clear all</button>
                 )}
               </div>
             </Field>
@@ -484,13 +494,7 @@ function WriteStage({ data, updateData, toast }: any) {
   const [draftModal, setDraftModal] = useState(false);
   const [rewriteModal, setRewriteModal] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [quickBusy, setQuickBusy] = useState<'' | 'outline' | 'opening'>('');
-  const [quickStatus, setQuickStatus] = useState('');
   const editorRef = useRef<HTMLTextAreaElement>(null);
-
-  const hasAnyContent = data.chapters.some((ch: Chapter) => ch.scenes.some((sc: Scene) => sc.body.trim().length > 0));
-  const isFreshProject = data.chapters.length === 1 && data.chapters[0].scenes.length === 1 && !hasAnyContent;
-  const showQuickDraft = data.writeMode === 'quick' && isFreshProject;
 
   const ctx = findScene(data, data.activeSceneId) || { chapter: data.chapters[0], scene: data.chapters[0].scenes[0] };
 
@@ -677,13 +681,22 @@ function WriteStage({ data, updateData, toast }: any) {
     }
   }
 
+  // QUICK DRAFT: generate full chapter outline + draft chapters from description
+  const [quickBusy, setQuickBusy] = useState<'' | 'outline' | 'opening' | 'all'>('');
+  const [quickStatus, setQuickStatus] = useState('');
+  const [quickProgress, setQuickProgress] = useState({ done: 0, total: 0 });
+  const [quickDraftMode, setQuickDraftMode] = useState<'opening' | 'all'>('all');
+  const cancelRef = useRef(false);
+
   async function generateQuickDraft() {
-    if (data.quickPrompt.trim().length < 20) {
+    if (!data.quickPrompt.trim() || data.quickPrompt.trim().length < 20) {
       toast('Tell us a bit more about what you want to write.', 'error');
       return;
     }
-    const targetWords = data.quickWordTarget;
-    let chapterCount: number;
+    const targetWords = data.quickWordTarget || 60000;
+
+    // Decide chapter count based on word target
+    let chapterCount = 12;
     if (targetWords <= 3000) chapterCount = 1;
     else if (targetWords <= 8000) chapterCount = 3;
     else if (targetWords <= 20000) chapterCount = 5;
@@ -691,35 +704,44 @@ function WriteStage({ data, updateData, toast }: any) {
     else if (targetWords <= 70000) chapterCount = 12;
     else chapterCount = 18;
 
+    cancelRef.current = false;
     setQuickBusy('outline');
     setQuickStatus(`Planning ${chapterCount} chapters...`);
+    setQuickProgress({ done: 0, total: 0 });
+
     try {
-      const outlineJson = await callEngine({
+      // STEP 1: outline as JSON
+      const outlineRaw = await callEngine({
         task: '',
-        userPrompt: `Book description:\n${data.quickPrompt}\n\nTarget length: ${targetWords.toLocaleString()} words across ${chapterCount} chapters.${data.title ? `\nWorking title: ${data.title}` : ''}${data.genre ? `\nGenre: ${data.genre}` : ''}`,
-        systemOverride: `You are a book outliner. Read the description and produce a chapter outline as STRICT JSON only.
+        userPrompt: `BOOK DESCRIPTION:\n${data.quickPrompt}\n\nTARGET LENGTH: ${targetWords.toLocaleString()} words\nCHAPTERS: ${chapterCount}\n${data.title ? `WORKING TITLE: ${data.title}\n` : ''}${data.genre ? `GENRE: ${data.genre}\n` : ''}`,
+        systemOverride: `You are a book outlining engine. Given a description, target length, and chapter count, produce a chapter-by-chapter outline as STRICT JSON.
 
-RULES:
-- Exactly ${chapterCount} chapters.
-- Evocative, specific chapter titles. NOT generic placeholders like "The Beginning" or "Chapter 1". No throat-clearing.
-- One sentence per synopsis.
-- Arc proportional to chapter count: setup, complication, midpoint, escalation, climax, resolution.
-- Never use em dashes or en dashes.
-- Return ONLY this JSON shape, nothing else. No markdown fences, no preamble, no commentary:
-
+Return ONLY a JSON object with this exact shape:
 {
-  "title": "Book Title",
+  "title": "suggested working title",
   "chapters": [
-    { "title": "Chapter Title", "synopsis": "One sentence." }
+    { "title": "Chapter 1 title", "synopsis": "one sentence describing what happens in this chapter" },
+    { "title": "Chapter 2 title", "synopsis": "..." }
   ]
-}`,
+}
+
+Rules:
+- Produce exactly ${chapterCount} chapters
+- Chapter titles should be evocative, not generic (not "Chapter 1" / "Chapter 2")
+- Synopses are ONE sentence each, concrete and specific
+- Arc: setup, complication, escalation, climax, resolution proportional to chapter count
+- No em dashes anywhere
+- Return ONLY the JSON object. No markdown fences. No preamble. No explanation.`,
         maxTokens: 2500,
       });
 
+      if (cancelRef.current) { throw new Error('Cancelled.'); }
+
+      // Parse JSON (with cleanup)
       let outline: { title: string; chapters: { title: string; synopsis: string }[] };
       try {
-        const stripped = outlineJson.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-        outline = JSON.parse(stripped);
+        const cleaned = outlineRaw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+        outline = JSON.parse(cleaned);
       } catch {
         throw new Error('Could not parse outline. Try a more specific description.');
       }
@@ -727,139 +749,245 @@ RULES:
         throw new Error('Outline came back empty. Try again.');
       }
 
-      setQuickBusy('opening');
-      setQuickStatus('Writing the opening chapter...');
       const wordsPerChapter = Math.round(targetWords / outline.chapters.length);
-      const openingTarget = Math.min(wordsPerChapter, 2500);
-      const outlineList = outline.chapters.map((c, i) => `${i + 1}. ${c.title}: ${c.synopsis}`).join('\n');
-      const opening = await callEngine({
-        task: `TASK: Write the opening of this book. About ${openingTarget} words. Establish the world, the voice, and the first conflict or question. Make the reader want to keep going. Open at the first real sentence, no throat-clearing.`,
-        userPrompt: `Book description:\n${data.quickPrompt}\n\nChapter 1 title: ${outline.chapters[0].title}\nChapter 1 synopsis: ${outline.chapters[0].synopsis}\n\nFull outline for context:\n${outlineList}`,
-        voiceSample: data.voiceSample,
-        voiceProfile: data.voiceProfile,
-        voiceNotes: data.voiceNotes,
-        maxTokens: 4000,
-      });
+      const perChapterTarget = Math.min(wordsPerChapter, 2500);
 
-      const newChapters: Chapter[] = outline.chapters.map((c, i) => {
-        if (i === 0) {
-          return {
-            id: cid(),
-            title: c.title,
-            open: true,
-            scenes: [{ id: cid(), title: 'Opening', body: opening }],
-          };
-        }
-        return {
+      // STEP 2: draft chapters (either just opening, or all)
+      const draftAll = quickDraftMode === 'all';
+      const chaptersToDraft = draftAll ? outline.chapters.length : 1;
+
+      setQuickBusy(draftAll ? 'all' : 'opening');
+      setQuickProgress({ done: 0, total: chaptersToDraft });
+
+      const drafted: string[] = [];
+      let previousChapterTail = '';
+
+      for (let i = 0; i < chaptersToDraft; i++) {
+        if (cancelRef.current) break;
+
+        const ch = outline.chapters[i];
+        setQuickStatus(draftAll
+          ? `Writing chapter ${i + 1} of ${chaptersToDraft}: ${ch.title}`
+          : `Writing the opening chapter...`);
+
+        const contextBlock = i === 0
+          ? `Open the book. Establish the world, the voice, and the first conflict or question. Make the reader want to keep going. Open at the first real sentence, no throat-clearing.`
+          : `Continue the book. The previous chapter ended like this:\n---\n${previousChapterTail}\n---\nPick up the narrative naturally. Maintain voice, character names, and tone established earlier.`;
+
+        const chapterText = await callEngine({
+          task: `TASK: Write Chapter ${i + 1} of this book. About ${perChapterTarget} words. ${contextBlock}`,
+          userPrompt: `BOOK DESCRIPTION:\n${data.quickPrompt}\n\nCHAPTER ${i + 1}: ${ch.title}\nSYNOPSIS: ${ch.synopsis}\n\nFULL OUTLINE FOR CONTEXT:\n${outline.chapters.map((c, idx) => `${idx + 1}. ${c.title}: ${c.synopsis}`).join('\n')}\n\nWrite Chapter ${i + 1}.`,
+          voiceSample: data.voiceSample,
+          voiceProfile: data.voiceProfile,
+          voiceNotes: data.voiceNotes,
+          maxTokens: 4000,
+        });
+
+        if (cancelRef.current) break;
+
+        drafted.push(chapterText);
+        // Keep last ~400 words for continuity context in next chapter
+        const tail = chapterText.split(/\s+/).slice(-400).join(' ');
+        previousChapterTail = tail;
+
+        setQuickProgress({ done: i + 1, total: chaptersToDraft });
+      }
+
+      if (drafted.length === 0) {
+        throw new Error('Cancelled before any chapters drafted.');
+      }
+
+      // Build chapters: drafted ones have body, others have empty body
+      const newChapters: Chapter[] = outline.chapters.map((ch, i) => ({
+        id: cid(),
+        title: ch.title,
+        open: i === 0,
+        scenes: [{
           id: cid(),
-          title: c.title,
-          open: false,
-          scenes: [{ id: cid(), title: c.synopsis.slice(0, 50), body: '' }],
-        };
-      });
+          title: i === 0 ? 'Opening' : ch.synopsis.slice(0, 50),
+          body: i < drafted.length ? drafted[i] : '',
+        }],
+      }));
 
       updateData((d: ProjectData) => ({
         ...d,
-        title: d.title || outline.title || '',
+        title: d.title || outline.title || d.title,
         chapters: newChapters,
         activeSceneId: newChapters[0].scenes[0].id,
         writeMode: 'manual',
       }));
-      toast(`Drafted Chapter 1 plus ${outline.chapters.length - 1} more chapter outlines. Keep writing.`, 'success');
+
+      const draftedCount = drafted.length;
+      const remainingCount = outline.chapters.length - draftedCount;
+      if (cancelRef.current && draftedCount < chaptersToDraft) {
+        toast(`Cancelled. Saved ${draftedCount} drafted chapter${draftedCount === 1 ? '' : 's'} plus ${remainingCount} outlined.`, 'success');
+      } else if (draftedCount === outline.chapters.length) {
+        toast(`Drafted all ${draftedCount} chapters. Edit and polish from here.`, 'success');
+      } else {
+        toast(`Drafted ${draftedCount} chapter${draftedCount === 1 ? '' : 's'} plus ${remainingCount} chapter outline${remainingCount === 1 ? '' : 's'} to keep going.`, 'success');
+      }
     } catch (e: any) {
-      toast(e?.message || 'Generation failed.', 'error');
+      toast(e.message || 'Quick draft failed.', 'error');
     } finally {
       setQuickBusy('');
       setQuickStatus('');
+      setQuickProgress({ done: 0, total: 0 });
+      cancelRef.current = false;
     }
   }
 
+  function cancelQuickDraft() {
+    cancelRef.current = true;
+    setQuickStatus('Cancelling after current chapter...');
+  }
+
+  // Determine if Quick Draft entry should show
+  const hasAnyContent = data.chapters.some((ch: Chapter) => ch.scenes.some((sc: Scene) => sc.body.trim().length > 0));
+  const isFreshProject = data.chapters.length === 1 && data.chapters[0].scenes.length === 1 && !hasAnyContent;
+  const showQuickDraft = data.writeMode === 'quick' && isFreshProject;
+
   if (showQuickDraft) {
     return (
-      <div className="h-full overflow-y-auto bg-[var(--bg-2)]">
-        <div className="max-w-2xl mx-auto py-12 px-6">
-          <div className="flex justify-center mb-8">
-            <div className="flex gap-1 bg-white border border-[var(--line)] p-1 rounded-[10px] shadow-sm">
-              <button
-                className="px-3.5 py-1.5 rounded-[7px] text-[13px] font-semibold bg-[var(--blue-soft)] text-[var(--blue-deep)] shadow-sm"
-              >
+      <div className="h-full overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-6 py-12">
+          {/* mode toggle */}
+          <div className="flex items-center justify-center mb-8">
+            <div className="inline-flex p-1 bg-[var(--bg-3)] rounded-[10px]">
+              <button className="px-4 py-1.5 rounded-[7px] bg-white text-[var(--blue-deep)] text-[13px] font-semibold shadow-sm">
                 Quick Draft
               </button>
               <button
                 onClick={() => updateData((d: ProjectData) => ({ ...d, writeMode: 'manual' }))}
-                className="px-3.5 py-1.5 rounded-[7px] text-[13px] font-medium text-[var(--ink-3)] hover:text-[var(--ink)] transition"
+                className="px-4 py-1.5 rounded-[7px] text-[var(--ink-3)] text-[13px] font-medium hover:text-[var(--ink)]"
               >
                 Manual Chapters
               </button>
             </div>
           </div>
-          <h2 className="font-display text-4xl font-semibold mb-2 text-center tracking-tight">What do you want to write?</h2>
-          <p className="text-[var(--ink-3)] mb-8 text-center max-w-lg mx-auto">Describe your book in a few sentences. We will outline the chapters and draft the opening in your voice.</p>
+
+          <h2 className="font-display text-4xl font-semibold mb-2 text-center leading-tight">What do you want to write?</h2>
+          <p className="text-[var(--ink-3)] text-center mb-8 max-w-md mx-auto leading-relaxed">
+            Describe your book in a few sentences. We will outline the chapters and draft the opening in your voice.
+          </p>
 
           {quickBusy ? (
-            <div className="bg-white border border-[var(--line)] rounded-2xl p-12 text-center shadow-sm">
-              <div className="text-[var(--blue-deep)] mb-4 text-2xl">
-                <span className="dots inline-flex"><span></span><span></span><span></span></span>
+            <div className="bg-white border border-[var(--line)] rounded-2xl p-10 text-center shadow-sm">
+              <div className="w-14 h-14 mx-auto rounded-full bg-[var(--blue-soft)] grid place-items-center mb-4">
+                <span className="dots text-[var(--blue-deep)]" style={{ fontSize: 20 }}><span></span><span></span><span></span></span>
               </div>
-              <h3 className="font-display text-xl font-semibold mb-2">{quickStatus}</h3>
-              <p className="text-sm text-[var(--ink-3)]">This takes about 30 to 60 seconds.</p>
+              <div className="font-display text-xl font-semibold mb-1">{quickStatus}</div>
+              {quickProgress.total > 1 ? (
+                <>
+                  <div className="text-sm text-[var(--ink-3)] mb-4">{quickProgress.done} of {quickProgress.total} chapters drafted</div>
+                  <div className="w-full max-w-sm mx-auto h-2 bg-[var(--bg-3)] rounded-full overflow-hidden mb-5">
+                    <div
+                      className="h-full bg-gradient-to-r from-[var(--blue)] to-[var(--blue-deep)] transition-all"
+                      style={{ width: `${(quickProgress.done / quickProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="text-sm text-[var(--ink-3)] mb-5">This takes about 30 to 60 seconds.</div>
+              )}
+              <button
+                onClick={cancelQuickDraft}
+                className="text-xs text-[var(--ink-3)] hover:text-[var(--red)] font-medium"
+              >
+                {cancelRef.current ? 'Cancelling...' : 'Cancel and keep what is drafted so far'}
+              </button>
             </div>
           ) : (
-            <div className="bg-white border border-[var(--line)] rounded-2xl p-8 shadow-sm space-y-5">
+            <div className="bg-white border border-[var(--line)] rounded-2xl p-6 shadow-sm">
               <Field label="Your book in your own words" hint="A paragraph is enough. The more specific, the better the opening.">
                 <textarea
                   value={data.quickPrompt}
                   onChange={e => updateData((d: ProjectData) => ({ ...d, quickPrompt: e.target.value }))}
                   className={textareaCls + ' min-h-[140px]'}
-                  placeholder="A literary novel about a casino floor supervisor who watches the building breathe before it fills with people. Set on Chickasaw land in the early 2000s, told in a quiet, observational voice."
+                  placeholder="A literary novel about a Chickasaw casino supervisor who watches the morning shift change one day and realizes his life is one he didn't choose. Set in rural Oklahoma. Quiet, observational, no easy answers."
                 />
               </Field>
+
               <Field label="How long?">
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    { label: 'Short story', words: 3000, sub: '3k words' },
-                    { label: 'Novella', words: 20000, sub: '20k words' },
-                    { label: 'Novel', words: 60000, sub: '60k words' },
-                    { label: 'Long novel', words: 90000, sub: '90k words' },
+                    { v: 3000, label: 'Short story', sub: '3k words' },
+                    { v: 20000, label: 'Novella', sub: '20k words' },
+                    { v: 60000, label: 'Novel', sub: '60k words' },
+                    { v: 90000, label: 'Long novel', sub: '90k words' },
                   ].map(opt => (
                     <button
-                      key={opt.words}
-                      onClick={() => updateData((d: ProjectData) => ({ ...d, quickWordTarget: opt.words }))}
-                      className={`p-3 rounded-lg border-2 text-center transition ${
-                        data.quickWordTarget === opt.words
+                      key={opt.v}
+                      onClick={() => updateData((d: ProjectData) => ({ ...d, quickWordTarget: opt.v }))}
+                      className={`px-3 py-3 rounded-lg border-2 transition text-left ${
+                        data.quickWordTarget === opt.v
                           ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
                           : 'border-[var(--line)] hover:border-[var(--blue)]/40'
                       }`}
                     >
-                      <div className="text-sm font-semibold text-[var(--ink-2)]">{opt.label}</div>
-                      <div className="text-xs text-[var(--ink-3)] mt-0.5 tabular-nums">{opt.sub}</div>
+                      <div className="text-sm font-semibold text-[var(--ink)]">{opt.label}</div>
+                      <div className="text-xs text-[var(--ink-3)]">{opt.sub}</div>
                     </button>
                   ))}
                 </div>
-                <div className="mt-3">
-                  <label className="block text-xs text-[var(--ink-3)] font-medium mb-1">Or custom word count</label>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-xs text-[var(--ink-3)]">Or custom:</span>
                   <input
                     type="number"
                     value={data.quickWordTarget}
                     onChange={e => updateData((d: ProjectData) => ({ ...d, quickWordTarget: parseInt(e.target.value) || 0 }))}
-                    className={inputCls}
+                    className="w-32 px-3 py-1.5 rounded-md border border-[var(--line)] focus:border-[var(--blue)] outline-none text-sm"
                   />
+                  <span className="text-xs text-[var(--ink-3)]">words</span>
                 </div>
               </Field>
-              {!data.voiceSample && (
-                <div className="bg-[var(--amber-soft)] border border-[var(--amber)]/30 rounded-lg px-4 py-3 text-xs text-[#92400e] leading-relaxed">
-                  No voice trained yet. We will write in a clean default voice. For better results, go to the Voice stage first.
+
+              <Field label="How much should we draft?">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setQuickDraftMode('opening')}
+                    className={`p-3 rounded-lg border-2 transition text-left ${
+                      quickDraftMode === 'opening'
+                        ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
+                        : 'border-[var(--line)] hover:border-[var(--blue)]/40'
+                    }`}
+                  >
+                    <div className="text-sm font-semibold text-[var(--ink)] mb-0.5">Opening only</div>
+                    <div className="text-xs text-[var(--ink-3)] leading-snug">Chapter 1 plus outline. Faster. You write the rest.</div>
+                  </button>
+                  <button
+                    onClick={() => setQuickDraftMode('all')}
+                    className={`p-3 rounded-lg border-2 transition text-left ${
+                      quickDraftMode === 'all'
+                        ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
+                        : 'border-[var(--line)] hover:border-[var(--blue)]/40'
+                    }`}
+                  >
+                    <div className="text-sm font-semibold text-[var(--ink)] mb-0.5">All chapters</div>
+                    <div className="text-xs text-[var(--ink-3)] leading-snug">Drafts every chapter. 3 to 10 minutes. Then you edit.</div>
+                  </button>
                 </div>
-              )}
+              </Field>
+
               <button
                 onClick={generateQuickDraft}
-                className="w-full px-5 py-3.5 rounded-lg bg-gradient-to-br from-[var(--blue)] to-[var(--blue-deep)] hover:opacity-95 text-white font-semibold shadow-[0_4px_14px_rgba(79,109,245,0.4)] transition flex items-center justify-center gap-2"
+                className="w-full mt-2 px-5 py-3.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold shadow-[0_4px_14px_rgba(79,109,245,0.4)] transition flex items-center justify-center gap-2"
               >
-                <svg viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
-                  <polygon points="5 3 19 12 5 21 5 3" />
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4">
+                  <path d="M5 3l14 9-14 9V3z"/>
                 </svg>
-                Generate manuscript
+                {quickDraftMode === 'all' ? 'Generate full manuscript' : 'Generate opening'}
               </button>
+
+              {!data.voiceSample && (
+                <div className="mt-4 px-3 py-2.5 bg-[var(--amber-soft)] rounded-lg text-xs text-[#92400e] flex items-start gap-2">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4 flex-shrink-0 mt-0.5">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                  </svg>
+                  <span>No voice trained yet. We will write in a clean default voice. For better results, go to the Voice stage first.</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -939,10 +1067,11 @@ RULES:
           {!hasAnyContent && (
             <button
               onClick={() => updateData((d: ProjectData) => ({ ...d, writeMode: 'quick' }))}
-              className="text-xs text-[var(--blue-deep)] hover:text-[var(--blue)] font-semibold flex items-center gap-1.5 px-2 py-1 rounded hover:bg-[var(--blue-soft)] transition"
+              className="text-xs font-medium text-[var(--blue-deep)] hover:bg-[var(--blue-soft)] px-2.5 py-1 rounded-md flex items-center gap-1.5 transition"
+              title="Switch to Quick Draft mode"
             >
-              <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
-                <polygon points="5 3 19 12 5 21 5 3" />
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                <path d="M5 3l14 9-14 9V3z"/>
               </svg>
               Quick Draft instead
             </button>
@@ -1009,8 +1138,10 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
   const [scope, setScope] = useState('scene');
   const [scopeCh, setScopeCh] = useState(data.chapters[0]?.id || '');
   const [busy, setBusy] = useState('');
-  const [consistencyResult, setConsistencyResult] = useState('');
-  const [pacingResult, setPacingResult] = useState('');
+  const [consistencyIssues, setConsistencyIssues] = useState<Issue[] | null>(null);
+  const [pacingIssues, setPacingIssues] = useState<Issue[] | null>(null);
+  const [structureIssues, setStructureIssues] = useState<StructureIssue[] | null>(null);
+  const [applyingId, setApplyingId] = useState('');
 
   function getTarget() {
     if (scope === 'scene') {
@@ -1025,6 +1156,8 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
   }
 
   const target = getTarget();
+
+  // Live AI Detection Score - recomputes whenever target text changes
   const aiScore: AIScore = computeAIScore(target.text);
 
   function applyScrub() {
@@ -1072,20 +1205,79 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
     }
   }
 
+  // Parse JSON from engine response, cleaning up markdown fences
+  function parseJsonResponse(raw: string): any {
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+    return JSON.parse(cleaned);
+  }
+
+  // Apply a single rewrite to the target text in-place across the manuscript
+  function applyIssueRewrite(issue: Issue) {
+    const passage = issue.passage;
+    const rewrite = issue.rewrite;
+    if (!passage || !rewrite) { toast('No rewrite provided for this issue.', 'error'); return; }
+
+    updateData((d: ProjectData) => {
+      const next = { ...d };
+      const replaceFn = (text: string) => {
+        if (text.includes(passage)) return text.replace(passage, rewrite);
+        return text;
+      };
+      if (scope === 'scene') {
+        next.chapters = next.chapters.map(ch => ({ ...ch, scenes: ch.scenes.map(s => s.id === d.activeSceneId ? { ...s, body: replaceFn(s.body) } : s) }));
+      } else if (scope === 'chapter') {
+        next.chapters = next.chapters.map(ch => ch.id !== scopeCh ? ch : { ...ch, scenes: ch.scenes.map(s => ({ ...s, body: replaceFn(s.body) })) });
+      } else {
+        next.chapters = next.chapters.map(ch => ({ ...ch, scenes: ch.scenes.map(s => ({ ...s, body: replaceFn(s.body) })) }));
+      }
+      return next;
+    });
+  }
+
   async function checkConsistency() {
     if (!data.voiceSample) { toast('Train a voice first.', 'error'); return; }
     if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
     setBusy('cons');
+    setConsistencyIssues(null);
     try {
       const result = await callEngine({
         task: '',
-        userPrompt: `VOICE SAMPLE:\n---\n${data.voiceSample.slice(0, 4000)}\n---\n\nPASSAGE TO CHECK:\n---\n${target.text.slice(0, 6000)}\n---\n\nReport voice drift and suggest fixes.`,
-        systemOverride: `You are a voice-consistency editor. Compare the passage to the voice sample and report drift. Be specific: cite phrases that don't match, differences in sentence length, register, or vocabulary. Suggest concrete fixes. Short prose paragraph followed by 3 to 6 bullet points.`,
-        maxTokens: 1200,
+        userPrompt: `VOICE SAMPLE:\n---\n${data.voiceSample.slice(0, 4000)}\n---\n\nPASSAGE TO CHECK:\n---\n${target.text.slice(0, 6000)}\n---`,
+        systemOverride: `You are a voice-consistency editor. Find specific passages in the manuscript that drift from the voice sample. For each drift, provide a concrete rewrite that matches the voice.
+
+Return ONLY a JSON object with this exact shape:
+{
+  "issues": [
+    {
+      "passage": "exact text from the manuscript that drifts (must match verbatim, include surrounding context if needed for uniqueness, 10 to 80 words)",
+      "rewrite": "the same passage rewritten to match the voice sample",
+      "reason": "one sentence explaining what was wrong (e.g. sentence too long, wrong register, vocabulary mismatch)"
+    }
+  ]
+}
+
+Rules:
+- Return 3 to 8 issues maximum, prioritizing the most off-voice
+- The "passage" field MUST be an exact substring of the manuscript so it can be find-replaced
+- Rewrites must be in the trained voice, no em dashes, no chatbot vocabulary
+- If the passage is already consistent throughout, return { "issues": [] }
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 3000,
       });
-      setConsistencyResult(result);
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || []).map((it: any, idx: number) => ({
+        id: `cons-${Date.now()}-${idx}`,
+        passage: it.passage,
+        rewrite: it.rewrite,
+        reason: it.reason,
+        applied: false,
+      }));
+      setConsistencyIssues(issues);
+      if (issues.length === 0) {
+        toast('Voice is consistent. No issues found.', 'success');
+      }
     } catch (e: any) {
-      toast(e.message || 'Check failed.', 'error');
+      toast(e.message || 'Check failed. Try again.', 'error');
     } finally {
       setBusy('');
     }
@@ -1094,26 +1286,139 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
   async function reviewPacing() {
     if (!target.text.trim()) { toast('Nothing to review.', 'error'); return; }
     setBusy('pace');
+    setPacingIssues(null);
     try {
       const result = await callEngine({
         task: '',
         userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
-        systemOverride: `You are a developmental editor. Report on pacing and structure. Where does pace drag? Where does it rush? What needs a beat? Short prose intro then 4 to 6 specific bullet points with concrete suggestions. Be direct.`,
-        maxTokens: 1200,
+        systemOverride: `You are a developmental editor focused on pacing. Find specific passages where pace drags (too much exposition, too many details, too slow) or rushes (skipping beats, missing transitions, too compressed). For each, provide a concrete rewrite that fixes the pace.
+
+Return ONLY a JSON object with this exact shape:
+{
+  "issues": [
+    {
+      "passage": "exact text from the manuscript with pacing issue (must match verbatim, include surrounding context for uniqueness, 10 to 100 words)",
+      "rewrite": "the same passage rewritten with corrected pace (tighten what drags, expand what rushes)",
+      "reason": "one sentence: drags or rushes, and why"
+    }
+  ]
+}
+
+Rules:
+- Return 3 to 6 issues maximum, prioritizing the most pacing-broken passages
+- The "passage" field MUST be an exact substring of the manuscript so it can be find-replaced
+- Rewrites preserve meaning and voice, only fix pace
+- No em dashes, no chatbot vocabulary
+- If pacing is solid throughout, return { "issues": [] }
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 3000,
       });
-      setPacingResult(result);
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || []).map((it: any, idx: number) => ({
+        id: `pace-${Date.now()}-${idx}`,
+        passage: it.passage,
+        rewrite: it.rewrite,
+        reason: it.reason,
+        applied: false,
+      }));
+      setPacingIssues(issues);
+      if (issues.length === 0) {
+        toast('Pacing is solid. No issues found.', 'success');
+      }
     } catch (e: any) {
-      toast(e.message || 'Review failed.', 'error');
+      toast(e.message || 'Review failed. Try again.', 'error');
     } finally {
       setBusy('');
     }
+  }
+
+  async function checkStructure() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('struct');
+    setStructureIssues(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Manuscript:\n---\n${target.text.slice(0, 12000)}\n---`,
+        systemOverride: `You are a developmental editor focused on STRUCTURE, not prose. Look for structural problems: weak openings that fail to hook, sagging middles that lose momentum, abrupt endings, characters who appear without introduction, plot threads that don't resolve, missing setup before payoff, scenes that don't serve the larger arc.
+
+Return ONLY a JSON object with this exact shape:
+{
+  "issues": [
+    {
+      "kind": "opening" | "middle" | "ending" | "character" | "thread" | "setup" | "scene",
+      "where": "brief description of where the issue is (e.g. 'Chapter 3 opening', 'middle act around chapter 6')",
+      "problem": "one sentence describing the structural problem",
+      "fix": "one sentence describing a concrete fix"
+    }
+  ]
+}
+
+Rules:
+- Return 3 to 7 issues, prioritized by structural impact
+- "fix" should be actionable, not generic advice
+- No em dashes, no chatbot vocabulary
+- If structure is solid, return { "issues": [] }
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 2000,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: StructureIssue[] = (parsed.issues || []).map((it: any, idx: number) => ({
+        id: `struct-${Date.now()}-${idx}`,
+        kind: it.kind || 'scene',
+        where: it.where || '',
+        problem: it.problem || '',
+        fix: it.fix || '',
+      }));
+      setStructureIssues(issues);
+      if (issues.length === 0) {
+        toast('Structure is solid. No issues found.', 'success');
+      }
+    } catch (e: any) {
+      toast(e.message || 'Structure check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  function handleAcceptIssue(kind: 'cons' | 'pace', id: string) {
+    const list = kind === 'cons' ? consistencyIssues : pacingIssues;
+    if (!list) return;
+    const issue = list.find(i => i.id === id);
+    if (!issue || issue.applied) return;
+
+    setApplyingId(id);
+    applyIssueRewrite(issue);
+    const next = list.map(i => i.id === id ? { ...i, applied: true } : i);
+    if (kind === 'cons') setConsistencyIssues(next); else setPacingIssues(next);
+    setApplyingId('');
+    toast('Applied.', 'success');
+  }
+
+  function handleRejectIssue(kind: 'cons' | 'pace', id: string) {
+    const list = kind === 'cons' ? consistencyIssues : pacingIssues;
+    if (!list) return;
+    const next = list.filter(i => i.id !== id);
+    if (kind === 'cons') setConsistencyIssues(next); else setPacingIssues(next);
+  }
+
+  function handleFixAll(kind: 'cons' | 'pace') {
+    const list = kind === 'cons' ? consistencyIssues : pacingIssues;
+    if (!list || list.length === 0) return;
+    const unapplied = list.filter(i => !i.applied);
+    if (unapplied.length === 0) { toast('All fixes already applied.', 'success'); return; }
+
+    unapplied.forEach(issue => applyIssueRewrite(issue));
+    const next = list.map(i => ({ ...i, applied: true }));
+    if (kind === 'cons') setConsistencyIssues(next); else setPacingIssues(next);
+    toast(`Applied ${unapplied.length} fix${unapplied.length === 1 ? '' : 'es'}.`, 'success');
   }
 
   return (
     <div className="h-full overflow-y-auto p-9">
       <div className="max-w-[1320px] mx-auto">
         <h2 className="font-display text-3xl font-semibold mb-1.5">Edit and polish</h2>
-        <p className="text-[var(--ink-3)] mb-6">Watch your AI Detection Score, strip the patterns Amazon flags, run a line edit, check voice consistency.</p>
+        <p className="text-[var(--ink-3)] mb-6">AI Detection Score plus voice consistency, pacing, and structure checks. Each issue comes with a one-click fix.</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-5">
           <div className="bg-white rounded-xl border border-[var(--line)] p-10 shadow-sm max-h-[calc(100vh-180px)] overflow-y-auto font-serif text-[16px] leading-[1.78] text-[var(--ink)] whitespace-pre-wrap">
@@ -1137,45 +1442,52 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
             </div>
 
             <div className={editCard}>
-              <div className="flex items-start justify-between gap-2 mb-1">
+              <div className="flex items-center justify-between mb-1">
                 <h4 className="font-display text-[17px] font-semibold">AI Detection Score</h4>
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--green-soft)] text-[var(--green)] text-[10px] font-bold tracking-wider uppercase flex-shrink-0">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)] animate-pulse" />
-                  Live
-                </span>
+                <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--ink-4)]">Live</span>
               </div>
-              <p className="text-xs text-[var(--ink-3)] mb-3">How likely this reads as AI-generated. Tuned against the patterns KDP review flags.</p>
+              <p className="text-xs text-[var(--ink-3)] mb-4">How likely this reads as AI-generated. Tuned against the patterns KDP review flags.</p>
+
               {aiScore.totalWords === 0 ? (
-                <div className="text-center py-6 text-[var(--ink-4)] italic text-sm">Write something to see your score.</div>
+                <div className="text-center py-6 text-xs text-[var(--ink-4)] italic">Write something to see your score.</div>
               ) : (
                 <>
-                  <div className="flex items-center gap-3 p-3 rounded-lg" style={{ background: aiScore.color + '14', border: `1px solid ${aiScore.color}30` }}>
-                    <div className="w-[68px] h-[68px] rounded-lg grid place-items-center flex-shrink-0 font-display font-bold text-[42px] text-white" style={{ background: aiScore.color }}>
+                  {/* Big grade + density display */}
+                  <div className="flex items-center gap-4 mb-4 p-4 rounded-xl" style={{ background: aiScore.color + '14', border: `1px solid ${aiScore.color}30` }}>
+                    <div
+                      className="w-[68px] h-[68px] rounded-2xl grid place-items-center flex-shrink-0 font-display font-bold text-[42px] leading-none"
+                      style={{ background: aiScore.color, color: '#fff' }}
+                    >
                       {aiScore.grade}
                     </div>
-                    <div className="min-w-0">
-                      <div className="font-display font-bold text-[15px]" style={{ color: aiScore.color }}>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-bold tracking-wider uppercase mb-1" style={{ color: aiScore.color }}>
                         {aiScore.density.toFixed(2)} tells per 1k words
                       </div>
-                      <div className="text-xs text-[var(--ink-2)] mt-1 leading-snug">{aiScore.risk}</div>
+                      <div className="text-[12.5px] leading-snug text-[var(--ink-2)] font-medium">
+                        {aiScore.risk}
+                      </div>
                     </div>
                   </div>
+
+                  {/* Pattern breakdown */}
                   {aiScore.byPattern.length > 0 ? (
-                    <div className="mt-3">
-                      <div className="mb-3 flex flex-wrap gap-1">
-                        {aiScore.byPattern.map(p => (
-                          <span key={p.label} className="inline-flex items-center gap-1 bg-[var(--amber-soft)] text-[#92400e] px-2 py-1 rounded-full text-[11.5px] font-medium">
-                            {p.label} · <b>{p.count}</b>
+                    <>
+                      <div className="text-xs font-medium text-[var(--ink-2)] mb-2">
+                        {aiScore.totalTells} tell{aiScore.totalTells === 1 ? '' : 's'} across {aiScore.byPattern.length} pattern{aiScore.byPattern.length === 1 ? '' : 's'}:
+                      </div>
+                      <div className="mb-3 max-h-32 overflow-y-auto">
+                        {aiScore.byPattern.map(f => (
+                          <span key={f.label} className="inline-flex items-center gap-1 bg-[var(--amber-soft)] text-[#92400e] px-2 py-1 rounded-full text-[11.5px] font-medium mr-1 mb-1">
+                            {f.label} · <b>{f.count}</b>
                           </span>
                         ))}
                       </div>
                       <button onClick={applyScrub} className={btnPrimaryFull}>Fix all tells</button>
-                    </div>
+                    </>
                   ) : (
-                    <div className="mt-3 flex items-center gap-2 text-xs text-[var(--green)] font-semibold">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4">
-                        <polyline points="20 6 9 17 4 12" />
-                      </svg>
+                    <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
                       Clean. No AI tells detected.
                     </div>
                   )}
@@ -1193,23 +1505,116 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
 
             <div className={editCard}>
               <h4 className="font-display text-[17px] font-semibold mb-1">Voice consistency</h4>
-              <p className="text-xs text-[var(--ink-3)] mb-3">Check against your trained voice.</p>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find passages that drift from your trained voice. Apply rewrites with one click.</p>
               <button onClick={checkConsistency} disabled={busy === 'cons'} className={btnGhostFull}>
-                {busy === 'cons' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : 'Check consistency'}
+                {busy === 'cons' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : consistencyIssues ? 'Re-run check' : 'Check consistency'}
               </button>
-              {consistencyResult && (
-                <div className="mt-3 text-[12.5px] leading-[1.55] text-[var(--ink-2)] whitespace-pre-wrap">{consistencyResult}</div>
+              {consistencyIssues && consistencyIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">
+                      {consistencyIssues.filter(i => !i.applied).length} of {consistencyIssues.length} unfixed
+                    </div>
+                    <button
+                      onClick={() => handleFixAll('cons')}
+                      className="text-xs font-semibold text-[var(--blue-deep)] hover:underline"
+                      disabled={consistencyIssues.every(i => i.applied)}
+                    >
+                      Fix all
+                    </button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {consistencyIssues.map(issue => (
+                      <IssueCard
+                        key={issue.id}
+                        issue={issue}
+                        applying={applyingId === issue.id}
+                        onAccept={() => handleAcceptIssue('cons', issue.id)}
+                        onReject={() => handleRejectIssue('cons', issue.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {consistencyIssues && consistencyIssues.length === 0 && (
+                <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                  Voice stays consistent throughout.
+                </div>
               )}
             </div>
 
             <div className={editCard}>
-              <h4 className="font-display text-[17px] font-semibold mb-1">Pacing &amp; structure</h4>
-              <p className="text-xs text-[var(--ink-3)] mb-3">Where it drags, where it rushes.</p>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Pacing</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find passages that drag or rush. Apply rewrites that fix the pace.</p>
               <button onClick={reviewPacing} disabled={busy === 'pace'} className={btnGhostFull}>
-                {busy === 'pace' ? <>Reviewing<span className="dots"><span></span><span></span><span></span></span></> : 'Review pacing'}
+                {busy === 'pace' ? <>Reviewing<span className="dots"><span></span><span></span><span></span></span></> : pacingIssues ? 'Re-run review' : 'Review pacing'}
               </button>
-              {pacingResult && (
-                <div className="mt-3 text-[12.5px] leading-[1.55] text-[var(--ink-2)] whitespace-pre-wrap">{pacingResult}</div>
+              {pacingIssues && pacingIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">
+                      {pacingIssues.filter(i => !i.applied).length} of {pacingIssues.length} unfixed
+                    </div>
+                    <button
+                      onClick={() => handleFixAll('pace')}
+                      className="text-xs font-semibold text-[var(--blue-deep)] hover:underline"
+                      disabled={pacingIssues.every(i => i.applied)}
+                    >
+                      Fix all
+                    </button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {pacingIssues.map(issue => (
+                      <IssueCard
+                        key={issue.id}
+                        issue={issue}
+                        applying={applyingId === issue.id}
+                        onAccept={() => handleAcceptIssue('pace', issue.id)}
+                        onReject={() => handleRejectIssue('pace', issue.id)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pacingIssues && pacingIssues.length === 0 && (
+                <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                  Pacing is solid.
+                </div>
+              )}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Structure</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Whole-manuscript structural review. Weak openings, sagging middles, missing setup.</p>
+              <button onClick={checkStructure} disabled={busy === 'struct'} className={btnGhostFull}>
+                {busy === 'struct' ? <>Reviewing<span className="dots"><span></span><span></span><span></span></span></> : structureIssues ? 'Re-run check' : 'Check structure'}
+              </button>
+              {structureIssues && structureIssues.length > 0 && (
+                <div className="mt-3 space-y-2.5 max-h-[360px] overflow-y-auto">
+                  {structureIssues.map(issue => (
+                    <div key={issue.id} className="border border-[var(--line)] rounded-lg p-3 bg-[var(--bg-2)]">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-[var(--amber-soft)] text-[#92400e]">
+                          {issue.kind}
+                        </span>
+                        <span className="text-xs font-medium text-[var(--ink-2)]">{issue.where}</span>
+                      </div>
+                      <div className="text-[12.5px] text-[var(--ink-2)] mb-1.5 leading-snug"><b>Problem:</b> {issue.problem}</div>
+                      <div className="text-[12.5px] text-[var(--ink-2)] leading-snug"><b>Fix:</b> {issue.fix}</div>
+                    </div>
+                  ))}
+                  <div className="text-[11px] text-[var(--ink-3)] italic pt-1">
+                    Structure issues are diagnostic. Use Quick Draft, Draft scene, or Rewrite selection to apply the fixes manually.
+                  </div>
+                </div>
+              )}
+              {structureIssues && structureIssues.length === 0 && (
+                <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                  Structure is solid.
+                </div>
               )}
             </div>
           </div>
@@ -1394,7 +1799,14 @@ function PublishStage({ data, toast }: any) {
     { label: 'Voice profile trained', ok: !!data.voiceSample, warn: !data.voiceSample },
     { label: `Manuscript: ${totalW.toLocaleString()} words`, ok: totalW >= 5000, warn: totalW < 5000 && totalW > 0, bad: totalW === 0 },
     { label: `${data.chapters.length} chapter${data.chapters.length === 1 ? '' : 's'}`, ok: data.chapters.length > 0 },
-    { label: totalW === 0 ? 'AI Detection Score: not yet measured' : `AI Detection Score: ${score.grade} · ${score.density.toFixed(2)} per 1k words`, ok: totalW === 0 ? false : scoreOk, warn: scoreWarn, bad: scoreBad },
+    {
+      label: totalW === 0
+        ? 'AI Detection Score: not yet measured'
+        : `AI Detection Score: ${score.grade} · ${score.density.toFixed(2)} per 1k words`,
+      ok: totalW === 0 ? false : scoreOk,
+      warn: totalW > 0 && scoreWarn,
+      bad: totalW > 0 && scoreBad,
+    },
     { label: `Trim size: ${data.trim} in`, ok: true },
   ];
 
@@ -1474,6 +1886,59 @@ function Section({ title, children }: any) {
     <div className="bg-white border border-[var(--line)] rounded-xl p-6 shadow-sm">
       <div className="font-display text-[18px] font-semibold mb-4">{title}</div>
       <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function IssueCard({ issue, applying, onAccept, onReject }: {
+  issue: Issue;
+  applying: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (issue.applied) {
+    return (
+      <div className="border border-[var(--green-soft)] rounded-lg p-2.5 bg-[var(--green-soft)]/30 flex items-center gap-2">
+        <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+        <span className="text-xs text-[var(--ink-2)] flex-1 truncate"><b>Applied:</b> {issue.reason}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="border border-[var(--line)] rounded-lg p-3 bg-white">
+      <div className="text-[11.5px] font-medium text-[var(--ink-3)] mb-1.5 italic">{issue.reason}</div>
+      <div className="text-[12.5px] text-[var(--ink-2)] mb-2 leading-snug font-serif bg-[var(--amber-soft)]/40 rounded px-2 py-1.5">
+        <span className="text-[10px] font-bold tracking-wider uppercase text-[#92400e] block mb-1">Original</span>
+        {expanded ? issue.passage : (issue.passage.length > 140 ? issue.passage.slice(0, 140) + '...' : issue.passage)}
+      </div>
+      <div className="text-[12.5px] text-[var(--ink-2)] mb-2.5 leading-snug font-serif bg-[var(--green-soft)]/40 rounded px-2 py-1.5">
+        <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--green)] block mb-1">Rewrite</span>
+        {expanded ? issue.rewrite : (issue.rewrite.length > 140 ? issue.rewrite.slice(0, 140) + '...' : issue.rewrite)}
+      </div>
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={onAccept}
+          disabled={applying}
+          className="px-2.5 py-1 rounded-md bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-[11.5px] font-semibold transition disabled:opacity-50"
+        >
+          {applying ? 'Applying...' : 'Apply'}
+        </button>
+        <button
+          onClick={onReject}
+          className="px-2.5 py-1 rounded-md hover:bg-[var(--bg-3)] text-[var(--ink-3)] text-[11.5px] font-medium transition"
+        >
+          Skip
+        </button>
+        {(issue.passage.length > 140 || issue.rewrite.length > 140) && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="ml-auto text-[11px] text-[var(--ink-3)] hover:text-[var(--ink)] font-medium"
+          >
+            {expanded ? 'Less' : 'More'}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

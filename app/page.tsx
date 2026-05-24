@@ -113,7 +113,7 @@ export default function LandingPage() {
               { n: '01', title: 'Setup', body: 'Title, subtitle, author, trim size, ISBN, dedication, bio. Everything that lands on the cover and in the front matter.' },
               { n: '02', title: 'Voice', body: 'Upload past writing (.docx, .pdf, .txt) or paste a sample. The studio learns your cadence, sentence length, vocabulary, and the small habits that make your prose sound like you.' },
               { n: '03', title: 'Write', body: 'Quick Draft mode generates a full chapter outline and opening from a paragraph description. Manual mode for plotters. Continue, rewrite, or draft new scenes in your voice anytime.' },
-              { n: '04', title: 'Edit', body: 'AI Detection Score grades your manuscript A through F. Voice consistency check, line editor, pacing review. Strip the patterns KDP flags.' },
+              { n: '04', title: 'Edit', body: 'AI Detection Score grades A through F. Voice consistency, pacing, and structure checks find specific issues AND apply rewrites with one click. Nobody else does this.' },
               { n: '05', title: 'Cover', body: 'Eight palette presets, five title fonts, real typography control. Download a 1600×2560 cover ready for KDP.' },
               { n: '06', title: 'Publish', body: 'Export .docx, KDP-ready EPUB 3.0 with nav, print interior PDF with mirrored margins and trim-correct page setup. Upload to KDP and ship.' },
             ].map(item => (
