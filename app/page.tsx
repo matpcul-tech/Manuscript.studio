@@ -36,7 +36,7 @@ export default function LandingPage() {
               <span className="block text-[var(--blue-deep)]">Publish to Amazon in one click.</span>
             </h1>
             <p className="text-lg md:text-xl text-[var(--ink-3)] leading-relaxed mb-10 max-w-2xl mx-auto">
-              The first writing studio that learns your voice, drafts in it, edits in it, and exports KDP-ready files. No more juggling Sudowrite, Atticus, Canva, and Word.
+              The first writing studio that learns your voice, drafts in it, edits in it, designs the cover, and walks you through Amazon KDP publishing. No more juggling Sudowrite, Atticus, Canva, and Word.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
               <Link href="/login" className="w-full sm:w-auto px-7 py-3.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold shadow-[0_4px_14px_rgba(79,109,245,0.4)] transition">
@@ -116,6 +116,7 @@ export default function LandingPage() {
               { n: '04', title: 'Edit', body: 'AI Detection Score grades A through F. Voice consistency, pacing, and structure checks find specific issues AND apply rewrites with one click. Nobody else does this.' },
               { n: '05', title: 'Cover', body: 'Eight palette presets, five title fonts, real typography control. Download a 1600×2560 cover ready for KDP.' },
               { n: '06', title: 'Publish', body: 'Export .docx, KDP-ready EPUB 3.0 with nav, print interior PDF with mirrored margins and trim-correct page setup. Upload to KDP and ship.' },
+              { n: '07', title: 'Launch', body: 'Walk through Amazon KDP step by step. Description, keywords, categories, and pricing all generated for your book. Copy and paste your way to published.' },
             ].map(item => (
               <div key={item.n} className="p-7 rounded-2xl border border-[var(--line)] hover:border-[var(--blue)]/30 hover:shadow-[var(--shadow-md)] bg-white transition group">
                 <div className="font-display text-3xl font-bold text-[var(--blue)]/30 group-hover:text-[var(--blue)] mb-3 transition">{item.n}</div>

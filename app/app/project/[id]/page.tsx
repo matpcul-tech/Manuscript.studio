@@ -15,6 +15,7 @@ const STAGES = [
   { id: 'edit', label: 'Edit' },
   { id: 'cover', label: 'Cover' },
   { id: 'publish', label: 'Publish' },
+  { id: 'launch', label: 'Launch' },
 ];
 
 type Issue = {
@@ -197,7 +198,8 @@ export default function ProjectPage() {
         {data.currentStage === 'write' && <WriteStage data={data} updateData={updateData} toast={toast} />}
         {data.currentStage === 'edit' && <EditStage data={data} updateData={updateData} toast={toast} activeScene={activeScene} />}
         {data.currentStage === 'cover' && <CoverStage data={data} updateData={updateData} toast={toast} />}
-        {data.currentStage === 'publish' && <PublishStage data={data} toast={toast} />}
+        {data.currentStage === 'publish' && <PublishStage data={data} updateData={updateData} toast={toast} />}
+        {data.currentStage === 'launch' && <LaunchStage data={data} updateData={updateData} toast={toast} />}
       </div>
 
       {/* TOAST */}
@@ -2122,7 +2124,7 @@ function CoverStage({ data, updateData, toast }: any) {
 }
 
 /* ==================== PUBLISH STAGE ==================== */
-function PublishStage({ data, toast }: any) {
+function PublishStage({ data, updateData, toast }: any) {
   const [busy, setBusy] = useState('');
 
   const totalW = data.chapters.reduce((n: number, ch: Chapter) => n + ch.scenes.reduce((m: number, sc: Scene) => m + countWords(sc.body), 0), 0);
@@ -2214,6 +2216,693 @@ function PublishStage({ data, toast }: any) {
             </div>
           ))}
         </div>
+
+        <div className="mt-6 bg-gradient-to-br from-[var(--blue-soft)] to-white border border-[var(--blue)]/30 rounded-2xl p-6 shadow-sm">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-xl bg-[var(--blue)] text-white grid place-items-center flex-shrink-0">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6">
+                <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>
+                <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>
+                <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/>
+                <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>
+              </svg>
+            </div>
+            <div className="flex-1">
+              <h4 className="font-display text-[19px] font-semibold mb-1">Ready to publish on Amazon?</h4>
+              <p className="text-sm text-[var(--ink-3)] leading-relaxed mb-4">
+                The Launch stage walks you through every KDP form question with copy-paste answers generated for your book.
+              </p>
+              <button
+                onClick={() => updateData((d: ProjectData) => ({ ...d, currentStage: 'launch' }))}
+                className="px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold text-sm shadow-sm transition flex items-center gap-2"
+              >
+                Go to KDP Walkthrough
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5">
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==================== LAUNCH STAGE ==================== */
+function LaunchStage({ data, updateData, toast }: any) {
+  const hasAnyContent = data.chapters.some((ch: Chapter) => ch.scenes.some((sc: Scene) => sc.body.trim().length > 0));
+
+  const STEPS = [
+    {
+      id: 'title',
+      label: 'Book Title and Subtitle',
+      question: 'KDP asks for your book title and subtitle separately.',
+      why: 'These appear on your Amazon listing and book cover. Cannot be easily changed after publishing.',
+    },
+    {
+      id: 'author',
+      label: 'Primary Author Name',
+      question: 'The name that appears as the author on Amazon.',
+      why: 'Links your book to your KDP author profile and Amazon Author Central. Same spelling on every book builds your author brand.',
+    },
+    {
+      id: 'description',
+      label: 'Book Description',
+      question: 'The marketing blurb shown on your Amazon product page. 4000 character limit on KDP.',
+      why: 'The single biggest driver of whether a browser becomes a buyer. Good descriptions hook with the first sentence and create emotional investment in the protagonist or topic.',
+    },
+    {
+      id: 'keywords',
+      label: '7 Keyword Phrases',
+      question: 'KDP gives you 7 keyword slots that help your book appear in Amazon searches.',
+      why: 'These are not single words. They are phrases that real readers type into Amazon search. Targeting specific niches outperforms generic terms.',
+    },
+    {
+      id: 'categories',
+      label: '2 Browse Categories',
+      question: 'KDP lets you pick 2 categories where your book will appear.',
+      why: 'Categories control which Amazon bestseller lists your book is eligible for. Specific niche categories rank faster than broad ones. Pick categories where you can realistically reach #1 to earn the orange bestseller badge.',
+    },
+    {
+      id: 'price',
+      label: 'List Price',
+      question: 'How much will you charge?',
+      why: 'Below $2.99 you get 35% royalty. Between $2.99 and $9.99 you get 70% royalty. Above $9.99 you drop back to 35%. The sweet spot for most fiction is $3.99 to $5.99. Nonfiction often goes $7.99 to $9.99.',
+    },
+    {
+      id: 'select',
+      label: 'KDP Select Enrollment',
+      question: 'Should you enroll in KDP Select?',
+      why: 'KDP Select is a 90-day Amazon Kindle exclusivity program. Your book cannot be sold on any other platform (Apple Books, Kobo, B&N) during those 90 days. In return, your book is included in Kindle Unlimited (subscription readers can read for free, you earn per page read), and you get 5 free promo days and 5 countdown deal days per 90 days. Most first-time authors should enroll because Kindle Unlimited is where readers discover indie books.',
+    },
+    {
+      id: 'manuscript',
+      label: 'Manuscript Upload',
+      question: 'Which file do you upload to KDP?',
+      why: 'KDP accepts EPUB for Kindle ebooks and PDF for paperback. Manuscript Studio\'s Publish stage already generated both.',
+    },
+    {
+      id: 'cover',
+      label: 'Book Cover Upload',
+      question: 'Cover image requirements.',
+      why: 'KDP requires 1600 x 2560 pixels for Kindle. Paperback covers need a different file with spine and back cover (Manuscript Studio\'s Cover stage generates the Kindle version).',
+    },
+    {
+      id: 'review',
+      label: 'Before You Hit Publish',
+      question: 'Pre-publish checklist.',
+      why: 'Once you click Publish on KDP, the title is locked and changes are difficult. Spend 5 minutes verifying before submitting.',
+    },
+  ];
+
+  const stepIndex = Math.max(0, Math.min(STEPS.length - 1, data.kdpStepIndex || 0));
+  const currentStep = STEPS[stepIndex];
+
+  const [busy, setBusy] = useState<'' | 'description' | 'keywords' | 'categories'>('');
+  const [categorySuggestions, setCategorySuggestions] = useState<{ path: string; reason: string }[]>([]);
+  const [reviewChecks, setReviewChecks] = useState<Record<string, boolean>>({});
+
+  function copyToClipboard(text: string, successMessage = 'Copied.') {
+    navigator.clipboard.writeText(text).then(() => {
+      toast(successMessage, 'success');
+    }).catch(() => {
+      toast('Could not copy. Try selecting the text manually.', 'error');
+    });
+  }
+
+  function goToStep(i: number) {
+    updateData((d: ProjectData) => ({ ...d, kdpStepIndex: Math.max(0, Math.min(STEPS.length - 1, i)) }));
+  }
+
+  function getManuscriptSample(): string {
+    return data.chapters
+      .flatMap((ch: Chapter) => ch.scenes.map((sc: Scene) => sc.body))
+      .filter((b: string) => b.trim().length > 0)
+      .join('\n\n')
+      .slice(0, 4000);
+  }
+
+  async function generateDescription() {
+    const sample = getManuscriptSample();
+    if (!sample) { toast('Add some manuscript content first.', 'error'); return; }
+    setBusy('description');
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `MANUSCRIPT EXCERPT:\n${sample}\n\nGENRE: ${data.genre}\nTITLE: ${data.title || 'Untitled'}${data.subtitle ? `\nSUBTITLE: ${data.subtitle}` : ''}`,
+        systemOverride: `Generate a 250-400 word Amazon book description. Open with a hook sentence that creates curiosity or emotional stakes. Middle should establish character/topic and conflict/tension. End with a question or stakes statement that makes the reader want to find out. Use short paragraphs, 2-3 sentences each. No em dashes. No marketing cliches like 'page-turner', 'unputdownable', 'masterpiece'. Match the tone of the manuscript. Do not summarize the whole plot; hint at it. Output only the description text, no preamble.`,
+        maxTokens: 1500,
+        timeoutMs: 60000,
+      });
+      updateData((d: ProjectData) => ({ ...d, kdpDescription: result.trim() }));
+      toast('Description generated.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Could not generate description.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function generateKeywords() {
+    const sample = getManuscriptSample();
+    setBusy('keywords');
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `MANUSCRIPT EXCERPT:\n${sample}\n\nGENRE: ${data.genre}\nTITLE: ${data.title || 'Untitled'}${data.kdpDescription ? `\n\nMARKETING BLURB:\n${data.kdpDescription}` : ''}`,
+        systemOverride: `Generate exactly 7 Amazon keyword phrases for this book. Each phrase should be 2-5 words that a real reader would type into Amazon search. Avoid single generic words. Target specific reader desires (e.g. 'literary fiction native american', 'small town casino novel', 'rural oklahoma drama'). Return ONLY a JSON object: { "keywords": ["phrase 1", "phrase 2", ...] }. No markdown fences. No preamble.`,
+        maxTokens: 800,
+        timeoutMs: 60000,
+      });
+      const cleaned = result.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+      if (!parsed.keywords || !Array.isArray(parsed.keywords)) throw new Error('Invalid response.');
+      updateData((d: ProjectData) => ({ ...d, kdpKeywords: parsed.keywords.slice(0, 7) }));
+      toast('Keywords generated.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Could not generate keywords.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function generateCategories() {
+    setBusy('categories');
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `BOOK CONTEXT:\nTITLE: ${data.title || 'Untitled'}\nGENRE: ${data.genre}${data.quickPrompt ? `\n\nDESCRIPTION:\n${data.quickPrompt}` : ''}${data.kdpDescription ? `\n\nMARKETING BLURB:\n${data.kdpDescription}` : ''}`,
+        systemOverride: `Suggest 3 Amazon KDP browse categories for this book. Use the full Amazon category path. Prioritize specific subcategories where the book can rank well over broad categories where it would get buried. Return ONLY a JSON object: { "categories": [{ "path": "Books > Literature & Fiction > Literary Fiction > Cultural Heritage > Native American", "reason": "why this works for the book" }, ...] }. No markdown fences.`,
+        maxTokens: 800,
+        timeoutMs: 60000,
+      });
+      const cleaned = result.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+      if (!parsed.categories || !Array.isArray(parsed.categories)) throw new Error('Invalid response.');
+      setCategorySuggestions(parsed.categories);
+      toast('Categories generated.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Could not generate categories.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  function suggestPrice(): number {
+    const genre = data.genre;
+    if (genre === 'nonfiction') return 7.99;
+    if (genre === 'business') return 9.99;
+    const totalWords = data.chapters.reduce((n: number, ch: Chapter) => n + ch.scenes.reduce((m: number, sc: Scene) => m + countWords(sc.body), 0), 0);
+    if (totalWords < 30000) return 2.99;
+    if (totalWords < 50000) return 3.99;
+    if (totalWords < 80000) return 4.99;
+    return 5.99;
+  }
+
+  function calcRoyalty(price: number): { earn: number; rate: number } {
+    if (price < 2.99 || price > 9.99) return { earn: price * 0.35, rate: 35 };
+    return { earn: price * 0.70, rate: 70 };
+  }
+
+  function toggleCategoryPick(path: string) {
+    const has = data.kdpCategories.includes(path);
+    if (has) {
+      updateData((d: ProjectData) => ({ ...d, kdpCategories: d.kdpCategories.filter((p: string) => p !== path) }));
+      return;
+    }
+    if (data.kdpCategories.length >= 2) {
+      toast('You can pick at most 2 categories.', 'error');
+      return;
+    }
+    updateData((d: ProjectData) => ({ ...d, kdpCategories: [...d.kdpCategories, path] }));
+  }
+
+  function updateKeyword(i: number, value: string) {
+    updateData((d: ProjectData) => {
+      const next = [...d.kdpKeywords];
+      next[i] = value;
+      return { ...d, kdpKeywords: next };
+    });
+  }
+
+  const reviewItems = [
+    { id: 'title', label: 'Title spelling correct (case-sensitive)' },
+    { id: 'author', label: 'Author name correct' },
+    { id: 'subtitle', label: 'Subtitle correct (if used)' },
+    { id: 'cover', label: 'Cover image loads and looks right at thumbnail size' },
+    { id: 'description', label: 'Description preview shows formatting correctly' },
+    { id: 'categories', label: 'Categories show on Amazon\'s correct browse paths' },
+    { id: 'lookinside', label: 'Sample chapters (look inside) display correctly' },
+    { id: 'price', label: 'Price shown correctly' },
+  ];
+  const allReviewed = reviewItems.every(it => reviewChecks[it.id]);
+
+  if (!hasAnyContent) {
+    return (
+      <div className="h-full overflow-y-auto p-10">
+        <div className="max-w-xl mx-auto mt-12">
+          <div className="bg-white rounded-2xl border border-[var(--line)] p-10 text-center shadow-sm">
+            <div className="w-14 h-14 mx-auto rounded-full bg-[var(--blue-soft)] text-[var(--blue-deep)] grid place-items-center mb-5">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-7 h-7">
+                <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/>
+                <path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/>
+              </svg>
+            </div>
+            <h2 className="font-display text-2xl font-semibold mb-2">Finish your manuscript first</h2>
+            <p className="text-[var(--ink-3)] mb-6 leading-relaxed">
+              The Launch stage uses your book's content to generate the description, keywords, and categories that drive Amazon discoverability.
+            </p>
+            <button
+              onClick={() => updateData((d: ProjectData) => ({ ...d, currentStage: 'write' }))}
+              className="px-5 py-3 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold transition"
+            >
+              Go to Write stage
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const copyBtnCls = 'px-3 py-1.5 rounded-md border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition flex items-center gap-1.5 flex-shrink-0';
+  const royalty = calcRoyalty(data.kdpPrice);
+  const suggestedPrice = suggestPrice();
+
+  return (
+    <div className="h-full overflow-y-auto p-8">
+      <div className="max-w-[1280px] mx-auto grid grid-cols-1 lg:grid-cols-[45%_55%] gap-6">
+        {/* LEFT: question */}
+        <aside className="space-y-4">
+          <div className="text-xs font-bold tracking-wider uppercase text-[var(--blue-deep)]">
+            Step {stepIndex + 1} of {STEPS.length}
+          </div>
+          <h2 className="font-display text-3xl font-semibold leading-tight tracking-tight">{currentStep.label}</h2>
+          <p className="text-[var(--ink-2)] leading-relaxed">{currentStep.question}</p>
+          <p className="text-sm text-[var(--ink-3)] leading-relaxed">{currentStep.why}</p>
+
+          <a
+            href="https://kdp.amazon.com/en_US/title-setup/kindle/new/details"
+            target="_blank"
+            rel="noreferrer noopener"
+            className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--blue-deep)] hover:text-[var(--blue)]"
+          >
+            Open KDP in a new tab
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+              <polyline points="15 3 21 3 21 9"/>
+              <line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+          </a>
+
+          <div className="pt-6">
+            <div className="flex gap-1">
+              {STEPS.map((s, i) => (
+                <button
+                  key={s.id}
+                  onClick={() => goToStep(i)}
+                  className={`flex-1 h-1.5 rounded-full transition ${
+                    i === stepIndex
+                      ? 'bg-[var(--blue)]'
+                      : i < stepIndex
+                      ? 'bg-[var(--blue)]/40'
+                      : 'bg-[var(--line)] hover:bg-[var(--ink-5)]'
+                  }`}
+                  title={`${i + 1}. ${s.label}`}
+                />
+              ))}
+            </div>
+            <div className="mt-2 grid grid-cols-10 text-[10px] text-[var(--ink-4)] tabular-nums text-center">
+              {STEPS.map((s, i) => (
+                <div key={s.id} className={i === stepIndex ? 'text-[var(--blue-deep)] font-bold' : ''}>{i + 1}</div>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        {/* RIGHT: answer */}
+        <main className="space-y-4">
+          <div className="bg-white rounded-2xl border border-[var(--line)] p-6 shadow-sm">
+            {currentStep.id === 'title' && (
+              <div className="space-y-4">
+                <div>
+                  <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold mb-1.5">Title</div>
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 font-display text-2xl font-semibold leading-tight">
+                      {data.title || <span className="text-[var(--ink-4)] italic text-base font-normal">No title set. Go back to Setup.</span>}
+                    </div>
+                    {data.title && (
+                      <button onClick={() => copyToClipboard(data.title, 'Title copied.')} className={copyBtnCls}>Copy</button>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold mb-1.5">Subtitle</div>
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 font-display italic text-lg text-[var(--ink-2)]">
+                      {data.subtitle || <span className="text-[var(--ink-4)] italic text-base">No subtitle (optional)</span>}
+                    </div>
+                    {data.subtitle && (
+                      <button onClick={() => copyToClipboard(data.subtitle, 'Subtitle copied.')} className={copyBtnCls}>Copy</button>
+                    )}
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-[var(--amber-soft)] border border-[var(--amber)]/30 text-xs text-[#92400e] leading-relaxed">
+                  Double-check capitalization and spelling before saving. KDP makes title changes difficult.
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === 'author' && (
+              <div className="space-y-4">
+                <div>
+                  <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold mb-1.5">Author Name</div>
+                  <div className="flex items-start gap-2">
+                    <div className="flex-1 font-display text-2xl font-semibold leading-tight">
+                      {data.author || <span className="text-[var(--ink-4)] italic text-base font-normal">No author set. Go back to Setup.</span>}
+                    </div>
+                    {data.author && (
+                      <button onClick={() => copyToClipboard(data.author, 'Author copied.')} className={copyBtnCls}>Copy</button>
+                    )}
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-[var(--bg-2)] text-xs text-[var(--ink-3)] leading-relaxed">
+                  If you use a pen name, use it consistently across all books.
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === 'description' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold">Marketing Blurb</div>
+                  <div className="text-xs text-[var(--ink-3)] tabular-nums">
+                    <b className={data.kdpDescription.length > 4000 ? 'text-[var(--red)]' : 'text-[var(--ink-2)]'}>{data.kdpDescription.length}</b> / 4000
+                  </div>
+                </div>
+                {data.kdpDescription ? (
+                  <textarea
+                    value={data.kdpDescription}
+                    onChange={e => updateData((d: ProjectData) => ({ ...d, kdpDescription: e.target.value }))}
+                    className={textareaCls + ' min-h-[260px]'}
+                  />
+                ) : (
+                  <div className="rounded-lg bg-[var(--bg-2)] border border-dashed border-[var(--line)] p-8 text-center text-sm text-[var(--ink-3)]">
+                    No description yet. Click Generate to draft one from your manuscript.
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={generateDescription}
+                    disabled={busy === 'description'}
+                    className="flex-1 px-4 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] disabled:bg-[var(--ink-4)] text-white font-semibold text-sm shadow-sm transition flex items-center justify-center gap-1.5"
+                  >
+                    {busy === 'description'
+                      ? <>Generating<span className="dots"><span></span><span></span><span></span></span></>
+                      : data.kdpDescription ? 'Regenerate' : 'Generate description'}
+                  </button>
+                  {data.kdpDescription && (
+                    <button onClick={() => copyToClipboard(data.kdpDescription, 'Description copied.')} className={copyBtnCls}>
+                      Copy
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === 'keywords' && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold">7 Keyword Phrases</div>
+                  {data.kdpKeywords.length > 0 && (
+                    <button
+                      onClick={() => copyToClipboard(data.kdpKeywords.join('\n'), 'All 7 keywords copied.')}
+                      className={copyBtnCls}
+                    >
+                      Copy all
+                    </button>
+                  )}
+                </div>
+                {data.kdpKeywords.length === 0 ? (
+                  <div className="rounded-lg bg-[var(--bg-2)] border border-dashed border-[var(--line)] p-8 text-center text-sm text-[var(--ink-3)]">
+                    No keywords yet. Click Generate to draft 7 phrases.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {data.kdpKeywords.map((kw: string, i: number) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-[10px] text-[var(--ink-4)] font-mono w-4 text-right tabular-nums">{i + 1}</span>
+                        <input
+                          value={kw}
+                          onChange={e => updateKeyword(i, e.target.value)}
+                          className={inputCls + ' flex-1 font-mono text-[13px]'}
+                        />
+                        <button onClick={() => copyToClipboard(kw, 'Keyword copied.')} className={copyBtnCls}>Copy</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={generateKeywords}
+                  disabled={busy === 'keywords'}
+                  className="w-full px-4 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] disabled:bg-[var(--ink-4)] text-white font-semibold text-sm shadow-sm transition flex items-center justify-center gap-1.5"
+                >
+                  {busy === 'keywords'
+                    ? <>Generating<span className="dots"><span></span><span></span><span></span></span></>
+                    : data.kdpKeywords.length > 0 ? 'Regenerate keywords' : 'Generate keywords'}
+                </button>
+              </div>
+            )}
+
+            {currentStep.id === 'categories' && (
+              <div className="space-y-3">
+                <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold">3 Suggested Categories (pick 2)</div>
+                {categorySuggestions.length === 0 && data.kdpCategories.length === 0 ? (
+                  <div className="rounded-lg bg-[var(--bg-2)] border border-dashed border-[var(--line)] p-8 text-center text-sm text-[var(--ink-3)]">
+                    No suggestions yet. Click Generate to see 3 category paths.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {categorySuggestions.map((c, i) => {
+                      const picked = data.kdpCategories.includes(c.path);
+                      return (
+                        <div
+                          key={i}
+                          className={`p-3 rounded-lg border-2 transition ${
+                            picked
+                              ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
+                              : 'border-[var(--line)] hover:border-[var(--blue)]/40'
+                          }`}
+                        >
+                          <div className="font-mono text-[12.5px] text-[var(--ink-2)] mb-1 leading-snug">{c.path}</div>
+                          <div className="text-xs text-[var(--ink-3)] leading-relaxed mb-2">{c.reason}</div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => toggleCategoryPick(c.path)}
+                              className={`px-3 py-1 rounded-md text-xs font-semibold transition ${
+                                picked
+                                  ? 'bg-[var(--blue)] text-white'
+                                  : 'border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--blue)]'
+                              }`}
+                            >
+                              {picked ? 'Picked ✓' : 'Pick this'}
+                            </button>
+                            <button onClick={() => copyToClipboard(c.path, 'Category path copied.')} className={copyBtnCls}>Copy</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {data.kdpCategories.length > 0 && categorySuggestions.length === 0 && (
+                      <div className="text-xs text-[var(--ink-3)] mb-2">Previously picked:</div>
+                    )}
+                    {data.kdpCategories.length > 0 && categorySuggestions.length === 0 && data.kdpCategories.map((path: string, i: number) => (
+                      <div key={i} className="p-3 rounded-lg border-2 border-[var(--blue)] bg-[var(--blue-soft)]">
+                        <div className="font-mono text-[12.5px] text-[var(--ink-2)] mb-2 leading-snug">{path}</div>
+                        <div className="flex gap-2">
+                          <button onClick={() => toggleCategoryPick(path)} className="px-3 py-1 rounded-md border border-[var(--line)] text-xs font-semibold text-[var(--ink-2)] hover:border-[var(--red)] hover:text-[var(--red)]">Unpick</button>
+                          <button onClick={() => copyToClipboard(path, 'Category path copied.')} className={copyBtnCls}>Copy</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={generateCategories}
+                  disabled={busy === 'categories'}
+                  className="w-full px-4 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] disabled:bg-[var(--ink-4)] text-white font-semibold text-sm shadow-sm transition flex items-center justify-center gap-1.5"
+                >
+                  {busy === 'categories'
+                    ? <>Generating<span className="dots"><span></span><span></span><span></span></span></>
+                    : categorySuggestions.length > 0 ? 'Regenerate suggestions' : 'Generate categories'}
+                </button>
+                <div className="text-xs text-[var(--ink-3)]">
+                  <b className="text-[var(--ink-2)]">{data.kdpCategories.length}</b> of 2 picked
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === 'price' && (
+              <div className="space-y-4">
+                <div>
+                  <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold mb-1.5">List Price (USD)</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-display font-bold text-[var(--ink-2)]">$</span>
+                    <input
+                      type="number"
+                      min={0.99}
+                      max={200}
+                      step={0.01}
+                      value={data.kdpPrice}
+                      onChange={e => updateData((d: ProjectData) => ({ ...d, kdpPrice: parseFloat(e.target.value) || 0 }))}
+                      className={inputCls + ' font-display text-2xl font-bold py-2'}
+                    />
+                    <button onClick={() => copyToClipboard(data.kdpPrice.toFixed(2), 'Price copied.')} className={copyBtnCls}>Copy</button>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-[var(--green-soft)] border border-[var(--green)]/30">
+                  <div className="text-xs text-[#065f46] leading-relaxed">
+                    At <b>${data.kdpPrice.toFixed(2)}</b>, you earn approximately <b>${royalty.earn.toFixed(2)}</b> per Kindle sale ({royalty.rate}%).
+                  </div>
+                </div>
+                {Math.abs(data.kdpPrice - suggestedPrice) > 0.001 && (
+                  <button
+                    onClick={() => updateData((d: ProjectData) => ({ ...d, kdpPrice: suggestedPrice }))}
+                    className="text-xs font-semibold text-[var(--blue-deep)] hover:text-[var(--blue)]"
+                  >
+                    Use suggested ${suggestedPrice.toFixed(2)} (based on your genre and word count)
+                  </button>
+                )}
+                <div className="text-xs text-[var(--ink-3)] leading-relaxed pt-2 border-t border-[var(--line-2)]">
+                  Royalty tiers: under $2.99 = 35%. $2.99 to $9.99 = 70%. Over $9.99 = 35% again.
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === 'select' && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-2">
+                  <button
+                    onClick={() => updateData((d: ProjectData) => ({ ...d, kdpSelect: true }))}
+                    className={`p-4 rounded-xl border-2 text-left transition ${
+                      data.kdpSelect ? 'border-[var(--blue)] bg-[var(--blue-soft)]' : 'border-[var(--line)] hover:border-[var(--blue)]/40'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2 mb-2">
+                      <span className={`w-4 h-4 rounded-full border-2 mt-0.5 ${data.kdpSelect ? 'border-[var(--blue)] bg-[var(--blue)]' : 'border-[var(--ink-4)]'}`} />
+                      <div className="flex-1">
+                        <div className="font-semibold text-[var(--ink)]">Enroll in KDP Select (recommended)</div>
+                        <div className="text-xs text-[var(--ink-3)] mt-1 leading-relaxed">Kindle Unlimited reach, 5 free promo days, 5 countdown deals every 90 days. Kindle exclusive.</div>
+                      </div>
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => updateData((d: ProjectData) => ({ ...d, kdpSelect: false }))}
+                    className={`p-4 rounded-xl border-2 text-left transition ${
+                      !data.kdpSelect ? 'border-[var(--blue)] bg-[var(--blue-soft)]' : 'border-[var(--line)] hover:border-[var(--blue)]/40'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2 mb-2">
+                      <span className={`w-4 h-4 rounded-full border-2 mt-0.5 ${!data.kdpSelect ? 'border-[var(--blue)] bg-[var(--blue)]' : 'border-[var(--ink-4)]'}`} />
+                      <div className="flex-1">
+                        <div className="font-semibold text-[var(--ink)]">Stay wide (sell everywhere)</div>
+                        <div className="text-xs text-[var(--ink-3)] mt-1 leading-relaxed">Apple Books, Kobo, B&N, and Amazon all at once. No Kindle Unlimited income. Slower discovery on Amazon.</div>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+                <div className="p-3 rounded-lg bg-[var(--bg-2)] text-xs text-[var(--ink-3)] leading-relaxed">
+                  You can opt out of KDP Select after the 90-day period if it doesn't work for you. Most first-time fiction authors get more reads via Kindle Unlimited than via other stores combined.
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === 'manuscript' && (
+              <div className="space-y-3">
+                <div className="p-4 rounded-xl border border-[var(--line)] bg-[var(--bg-2)]">
+                  <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold mb-1">Kindle EPUB</div>
+                  <div className="font-mono text-sm text-[var(--ink-2)]">{(data.title || 'manuscript').replace(/[^a-z0-9-]+/gi, '-').toLowerCase()}.epub</div>
+                  <div className="text-xs text-[var(--ink-3)] mt-1">Upload as the Kindle ebook file.</div>
+                </div>
+                <div className="p-4 rounded-xl border border-[var(--line)] bg-[var(--bg-2)]">
+                  <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold mb-1">Print Interior PDF</div>
+                  <div className="font-mono text-sm text-[var(--ink-2)]">{(data.title || 'manuscript').replace(/[^a-z0-9-]+/gi, '-').toLowerCase()}-print.pdf</div>
+                  <div className="text-xs text-[var(--ink-3)] mt-1">Upload as the paperback interior file.</div>
+                </div>
+                <div className="p-3 rounded-lg bg-[var(--amber-soft)] border border-[var(--amber)]/30 text-xs text-[#92400e] leading-relaxed">
+                  Go back to the Publish stage if you have not exported these yet.
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === 'cover' && (
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-28 h-44 rounded-md shadow-md flex-shrink-0" style={{ background: `linear-gradient(135deg, ${data.titleColor === '#ffffff' ? '#1a1f3a' : data.titleColor} 0%, #2d1b4e 100%)` }} />
+                  <div className="flex-1">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-[var(--green-soft)] text-[var(--green)] text-[10px] font-bold tracking-wider uppercase mb-2">
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--green)]" />
+                      Kindle cover ready
+                    </span>
+                    <div className="font-mono text-sm text-[var(--ink-2)] mb-1">{(data.title || 'cover').replace(/[^a-z0-9-]+/gi, '-').toLowerCase()}-cover.png</div>
+                    <div className="text-xs text-[var(--ink-3)]">1600 x 2560 px, generated in the Cover stage.</div>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-[var(--bg-2)] text-xs text-[var(--ink-3)] leading-relaxed">
+                  For paperback covers with spine and back cover, use KDP's free Cover Creator tool or upload a custom design. Spine and back cover support is coming to Manuscript Studio.
+                </div>
+              </div>
+            )}
+
+            {currentStep.id === 'review' && (
+              <div className="space-y-3">
+                <div className="text-[11px] text-[var(--ink-4)] uppercase tracking-wider font-bold">Check each item on KDP's preview</div>
+                <div className="space-y-1">
+                  {reviewItems.map(it => (
+                    <label key={it.id} className="flex items-center gap-2.5 p-2.5 rounded-lg hover:bg-[var(--bg-2)] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!reviewChecks[it.id]}
+                        onChange={e => setReviewChecks(prev => ({ ...prev, [it.id]: e.target.checked }))}
+                        className="w-4 h-4 accent-[var(--blue)]"
+                      />
+                      <span className={`text-sm ${reviewChecks[it.id] ? 'text-[var(--ink-3)] line-through' : 'text-[var(--ink-2)]'}`}>{it.label}</span>
+                    </label>
+                  ))}
+                </div>
+                {allReviewed && (
+                  <div className="p-4 rounded-xl bg-[var(--green-soft)] border border-[var(--green)]/40 text-center">
+                    <div className="font-display text-lg font-semibold text-[#065f46] mb-1">You are ready to publish.</div>
+                    <div className="text-sm text-[#065f46]">Click Publish on KDP.</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* nav */}
+          <div className="flex items-center justify-between gap-3">
+            <button
+              onClick={() => goToStep(stepIndex - 1)}
+              disabled={stepIndex === 0}
+              className="px-4 py-2 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] font-semibold text-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-[var(--line)] disabled:hover:text-[var(--ink-2)] transition flex items-center gap-1.5"
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5">
+                <polyline points="15 18 9 12 15 6"/>
+              </svg>
+              Previous step
+            </button>
+            <button
+              onClick={() => goToStep(stepIndex + 1)}
+              disabled={stepIndex === STEPS.length - 1}
+              className="px-5 py-2 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] disabled:bg-[var(--ink-4)] disabled:cursor-not-allowed text-white font-semibold text-sm shadow-sm transition flex items-center gap-1.5"
+            >
+              Next step
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5">
+                <polyline points="9 18 15 12 9 6"/>
+              </svg>
+            </button>
+          </div>
+        </main>
       </div>
     </div>
   );

@@ -44,6 +44,13 @@ export type ProjectData = {
   writeMode: 'quick' | 'manual';
   quickPrompt: string;
   quickWordTarget: number;
+  // kdp launch
+  kdpDescription: string;
+  kdpKeywords: string[];
+  kdpCategories: string[];
+  kdpPrice: number;
+  kdpSelect: boolean;
+  kdpStepIndex: number;
 };
 
 export function cid(): string {
@@ -79,5 +86,11 @@ export function defaultProjectData(): ProjectData {
     writeMode: 'quick',
     quickPrompt: '',
     quickWordTarget: 60000,
+    kdpDescription: '',
+    kdpKeywords: [],
+    kdpCategories: [],
+    kdpPrice: 4.99,
+    kdpSelect: false,
+    kdpStepIndex: 0,
   };
 }
