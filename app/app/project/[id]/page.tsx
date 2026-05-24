@@ -1258,22 +1258,55 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
     }
   }
 
+  // Build a position map from "skeleton" form back to original indices.
+  // Skeleton keeps only ASCII letters and digits, lowercased. Everything
+  // else (punctuation, quotes, dashes, ellipses, whitespace, case) is
+  // stripped, so two strings can compare equal even when their punctuation
+  // differs. The map records the original index of each skeleton char so
+  // we can translate a skeleton match back into an original character range.
+  function buildSkeleton(text: string): { skeleton: string; map: number[] } {
+    let skeleton = '';
+    const map: number[] = [];
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i].toLowerCase();
+      if (c >= 'a' && c <= 'z') { skeleton += c; map.push(i); continue; }
+      if (c >= '0' && c <= '9') { skeleton += c; map.push(i); continue; }
+    }
+    return { skeleton, map };
+  }
+
+  // Last-resort fallback: find the passage in the manuscript by alphanumeric
+  // skeleton alone, then replace the original range. Tolerates any
+  // punctuation, casing, or whitespace drift.
+  function skeletonReplace(text: string, passage: string, rewrite: string): string | null {
+    const tm = buildSkeleton(text);
+    const pm = buildSkeleton(passage);
+    if (!pm.skeleton || pm.skeleton.length < 8) return null;
+    const idx = tm.skeleton.indexOf(pm.skeleton);
+    if (idx < 0) return null;
+    const start = tm.map[idx];
+    const end = tm.map[idx + pm.skeleton.length - 1] + 1;
+    return text.slice(0, start) + rewrite + text.slice(end);
+  }
+
   // Try to apply one rewrite to a string. Returns the new text and whether
   // the replacement actually landed. Exact match first, then a fuzzy regex
-  // that tolerates whitespace and quote differences.
+  // that tolerates whitespace and quote differences, then a skeleton match
+  // that tolerates arbitrary punctuation and case drift.
   function tryRewriteInText(text: string, passage: string, rewrite: string): { text: string; success: boolean } {
     if (!passage || !rewrite) return { text, success: false };
     if (text.includes(passage)) {
       return { text: text.replace(passage, () => rewrite), success: true };
     }
-    if (!normalizeForMatch(text).includes(normalizeForMatch(passage))) {
-      return { text, success: false };
+    if (normalizeForMatch(text).includes(normalizeForMatch(passage))) {
+      const regex = buildFuzzyRegex(passage);
+      if (regex) {
+        const next = text.replace(regex, () => rewrite);
+        if (next !== text) return { text: next, success: true };
+      }
     }
-    const regex = buildFuzzyRegex(passage);
-    if (regex) {
-      const next = text.replace(regex, () => rewrite);
-      if (next !== text) return { text: next, success: true };
-    }
+    const skel = skeletonReplace(text, passage, rewrite);
+    if (skel !== null && skel !== text) return { text: skel, success: true };
     return { text, success: false };
   }
 
