@@ -33,6 +33,12 @@ type StructureIssue = {
   fix: string;
 };
 
+type TitleSuggestion = {
+  title: string;
+  subtitle: string;
+  style: string;
+};
+
 const COVER_PRESETS: Record<string, { bg: string[]; text: string; overlay: number }> = {
   midnight: { bg: ['#1a1f3a', '#2d1b4e'], text: '#ffffff', overlay: 35 },
   terracotta: { bg: ['#8b3a1f', '#4a1f12'], text: '#f4ead4', overlay: 30 },
@@ -186,7 +192,7 @@ export default function ProjectPage() {
 
       {/* STAGES */}
       <div className="flex-1 overflow-hidden">
-        {data.currentStage === 'setup' && <SetupStage data={data} updateData={updateData} onNext={() => setStage('voice')} />}
+        {data.currentStage === 'setup' && <SetupStage data={data} updateData={updateData} onNext={() => setStage('voice')} toast={toast} />}
         {data.currentStage === 'voice' && <VoiceStage data={data} updateData={updateData} toast={toast} />}
         {data.currentStage === 'write' && <WriteStage data={data} updateData={updateData} toast={toast} />}
         {data.currentStage === 'edit' && <EditStage data={data} updateData={updateData} toast={toast} activeScene={activeScene} />}
@@ -207,9 +213,116 @@ export default function ProjectPage() {
 }
 
 /* ==================== SETUP STAGE ==================== */
-function SetupStage({ data, updateData, onNext }: any) {
+function SetupStage({ data, updateData, onNext, toast }: any) {
   function f<K extends keyof ProjectData>(key: K, val: ProjectData[K]) {
     updateData((d: ProjectData) => ({ ...d, [key]: val }));
+  }
+
+  const [titleModalOpen, setTitleModalOpen] = useState(false);
+  const [titleBusy, setTitleBusy] = useState(false);
+  const [titleSuggestions, setTitleSuggestions] = useState<TitleSuggestion[]>([]);
+
+  async function generateTitles() {
+    const manuscriptSample = data.chapters
+      .flatMap((ch: Chapter) => ch.scenes.map((sc: Scene) => sc.body))
+      .filter((b: string) => b.trim().length > 0)
+      .join('\n\n')
+      .slice(0, 4000);
+
+    const hasDescription = data.quickPrompt && data.quickPrompt.trim().length > 20;
+    const hasManuscript = manuscriptSample.length > 100;
+
+    if (!hasDescription && !hasManuscript) {
+      toast('Add a Quick Draft description or start writing first, then we can suggest titles.', 'error');
+      return;
+    }
+
+    setTitleBusy(true);
+    setTitleSuggestions([]);
+    if (!titleModalOpen) setTitleModalOpen(true);
+
+    try {
+      const context = hasManuscript
+        ? `MANUSCRIPT EXCERPT (use this as primary signal):\n---\n${manuscriptSample}\n---\n${hasDescription ? `\nORIGINAL CONCEPT:\n${data.quickPrompt}` : ''}`
+        : `BOOK CONCEPT:\n${data.quickPrompt}`;
+
+      const result = await callEngine({
+        task: '',
+        userPrompt: `${context}\n\nGENRE: ${data.genre}\n${data.author ? `AUTHOR: ${data.author}\n` : ''}${data.title ? `CURRENT WORKING TITLE: ${data.title}\n` : ''}`,
+        systemOverride: `You are a book titling expert. Generate 8 title options in DIFFERENT styles, each paired with a fitting subtitle.
+
+Return ONLY a JSON object with this exact shape:
+{
+  "titles": [
+    { "title": "...", "subtitle": "...", "style": "literary" },
+    { "title": "...", "subtitle": "...", "style": "evocative" },
+    { "title": "...", "subtitle": "...", "style": "single-word" },
+    { "title": "...", "subtitle": "...", "style": "question" },
+    { "title": "...", "subtitle": "...", "style": "commercial" },
+    { "title": "...", "subtitle": "...", "style": "metaphor" },
+    { "title": "...", "subtitle": "...", "style": "direct" },
+    { "title": "...", "subtitle": "...", "style": "poetic" }
+  ]
+}
+
+Style guide for each:
+- literary: quiet, contemplative, often 2 to 4 words
+- evocative: paints a vivid image, sensory
+- single-word: one strong word that captures the whole book
+- question: a question the book answers
+- commercial: punchy, easy to remember, marketable
+- metaphor: uses a central image as metaphor for the story
+- direct: states what the book is about plainly
+- poetic: lyrical, rhythmic, slightly mysterious
+
+Subtitle rules:
+- 5 to 15 words
+- Adds context the title leaves implicit
+- Not redundant with the title
+- No "A Novel" cliche unless the genre demands it
+- Match the tone of the title
+
+Title rules:
+- No em dashes, no en dashes
+- No colons inside the title field itself (subtitle field separates that)
+- Use Title Case (capitalize Major Words)
+- Avoid generic words: tapestry, journey, untold, unspoken, hidden, secret, unforgettable
+- Avoid cliched openings: "The Last...", "The Lost...", "Daughter of...", "Children of..."
+
+Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 1500,
+        timeoutMs: 60000,
+      });
+
+      const cleaned = result.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      if (!parsed.titles || !Array.isArray(parsed.titles) || parsed.titles.length === 0) {
+        throw new Error('No titles came back. Try again.');
+      }
+
+      setTitleSuggestions(parsed.titles);
+    } catch (e: any) {
+      toast(e.message || 'Could not generate titles. Try again.', 'error');
+    } finally {
+      setTitleBusy(false);
+    }
+  }
+
+  function applyTitle(t: TitleSuggestion) {
+    updateData((d: ProjectData) => ({ ...d, title: t.title, subtitle: t.subtitle || d.subtitle }));
+    setTitleModalOpen(false);
+    toast('Title applied.', 'success');
+  }
+
+  function applyTitleOnly(t: TitleSuggestion) {
+    updateData((d: ProjectData) => ({ ...d, title: t.title }));
+    toast('Title applied (kept your subtitle).', 'success');
+  }
+
+  function applySubtitleOnly(t: TitleSuggestion) {
+    updateData((d: ProjectData) => ({ ...d, subtitle: t.subtitle }));
+    toast('Subtitle applied.', 'success');
   }
   return (
     <div className="h-full overflow-y-auto p-10">
@@ -220,7 +333,26 @@ function SetupStage({ data, updateData, onNext }: any) {
         <div className="space-y-5">
           <Section title="The book">
             <Field label="Title">
-              <input value={data.title} onChange={e => f('title', e.target.value)} className={inputCls} placeholder="A Spirit Reborn" />
+              <div className="flex gap-2">
+                <input
+                  value={data.title}
+                  onChange={e => f('title', e.target.value)}
+                  className={inputCls + ' flex-1'}
+                  placeholder="A Spirit Reborn"
+                />
+                <button
+                  type="button"
+                  onClick={generateTitles}
+                  className="px-3 py-2 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold flex items-center gap-1.5 transition flex-shrink-0"
+                  title="Generate title and subtitle ideas"
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                    <path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5z"/>
+                    <path d="M19 14l.7 2.1L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.9z"/>
+                  </svg>
+                  Suggest
+                </button>
+              </div>
             </Field>
             <Field label="Subtitle (optional)">
               <input value={data.subtitle} onChange={e => f('subtitle', e.target.value)} className={inputCls} placeholder="The Unconquered and Unconquerable Chickasaw Nation" />
@@ -295,6 +427,19 @@ function SetupStage({ data, updateData, onNext }: any) {
           </button>
         </div>
       </div>
+      {titleModalOpen && (
+        <TitleSuggestionsModal
+          busy={titleBusy}
+          suggestions={titleSuggestions}
+          currentTitle={data.title}
+          currentSubtitle={data.subtitle}
+          onClose={() => setTitleModalOpen(false)}
+          onRegenerate={generateTitles}
+          onApplyBoth={applyTitle}
+          onApplyTitle={applyTitleOnly}
+          onApplySubtitle={applySubtitleOnly}
+        />
+      )}
     </div>
   );
 }
@@ -2217,6 +2362,111 @@ function Modal({ title, sub, onClose, children }: any) {
         </div>
         <div className="px-7 py-4 flex-1 overflow-y-auto">
           {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TitleSuggestionsModal({ busy, suggestions, currentTitle, onClose, onRegenerate, onApplyBoth, onApplyTitle, onApplySubtitle }: any) {
+  const styleColors: Record<string, string> = {
+    literary: '#4f6df5',
+    evocative: '#f59e0b',
+    'single-word': '#10b981',
+    question: '#8b5cf6',
+    commercial: '#ef4444',
+    metaphor: '#6366f1',
+    direct: '#0ea5e9',
+    poetic: '#ec4899',
+  };
+  return (
+    <div className="fixed inset-0 bg-black/55 backdrop-blur-sm flex items-center justify-center p-5 z-[100]" style={{ animation: 'fadeIn 0.2s' }} onClick={onClose}>
+      <div className="bg-white w-full max-w-[640px] max-h-[88vh] rounded-2xl shadow-xl flex flex-col overflow-hidden" style={{ animation: 'pop 0.22s cubic-bezier(0.34, 1.56, 0.64, 1)' }} onClick={e => e.stopPropagation()}>
+        <div className="px-7 pt-6 pb-3 flex items-start gap-2">
+          <div className="flex-1 min-w-0">
+            <h2 className="font-display text-[22px] font-semibold mb-1 tracking-tight">Title suggestions</h2>
+            <p className="text-[13.5px] text-[var(--ink-3)] leading-relaxed">Eight options across different styles. Click to apply the full pair, or use the individual title/subtitle buttons.</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-md text-[var(--ink-4)] hover:text-[var(--ink)] hover:bg-[var(--bg-3)] grid place-items-center flex-shrink-0">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+        </div>
+        <div className="px-7 py-4 flex-1 overflow-y-auto">
+          {busy ? (
+            <div className="text-center py-12">
+              <div className="text-[var(--blue-deep)] mb-3 text-2xl">
+                <span className="dots inline-flex"><span></span><span></span><span></span></span>
+              </div>
+              <div className="font-semibold text-[var(--ink-2)] mb-1">Generating titles...</div>
+              <div className="text-xs text-[var(--ink-3)]">Reading your manuscript or concept to find titles that fit.</div>
+            </div>
+          ) : suggestions.length === 0 ? (
+            <div className="text-center py-12 text-[var(--ink-3)] text-sm">
+              No suggestions yet. Click Generate to see options.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {suggestions.map((t: TitleSuggestion, i: number) => {
+                const color = styleColors[t.style] || '#6b7280';
+                return (
+                  <div key={i} className="p-4 rounded-xl border border-[var(--line)] hover:border-[var(--blue)]/40 hover:shadow-sm transition">
+                    <span
+                      style={{ background: color + '18', color }}
+                      className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wider uppercase mb-2"
+                    >
+                      {t.style}
+                    </span>
+                    <div className="font-display text-[19px] font-semibold mb-1 leading-tight">{t.title}</div>
+                    {t.subtitle && (
+                      <div className="font-serif italic text-[13.5px] text-[var(--ink-3)] mb-3">{t.subtitle}</div>
+                    )}
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        onClick={() => onApplyBoth(t)}
+                        className="px-3 py-1.5 rounded-md bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-xs font-semibold transition"
+                      >
+                        Use both
+                      </button>
+                      <button
+                        onClick={() => onApplyTitle(t)}
+                        className="px-3 py-1.5 rounded-md border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition"
+                      >
+                        Title only
+                      </button>
+                      {t.subtitle && (
+                        <button
+                          onClick={() => onApplySubtitle(t)}
+                          className="px-3 py-1.5 rounded-md border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition"
+                        >
+                          Subtitle only
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+        <div className="px-7 py-4 border-t border-[var(--line)] bg-[var(--bg-2)] flex items-center justify-between gap-3">
+          <div className="text-[12.5px] text-[var(--ink-3)] truncate flex-1 min-w-0">
+            {currentTitle ? <>Current: <span className="text-[var(--ink-2)] font-medium">{currentTitle}</span></> : ''}
+          </div>
+          <button
+            onClick={onRegenerate}
+            disabled={busy}
+            className="px-3 py-2 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold flex items-center gap-1.5 transition flex-shrink-0 disabled:opacity-50"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            {suggestions.length === 0 ? 'Generate' : 'Regenerate'}
+          </button>
         </div>
       </div>
     </div>
