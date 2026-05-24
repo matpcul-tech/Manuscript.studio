@@ -11,18 +11,30 @@ export type EngineOpts = {
   maxTokens?: number;
 };
 
-export async function callEngine(opts: EngineOpts): Promise<string> {
-  const r = await fetch('/api/engine', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(opts),
-  });
-  if (!r.ok) {
-    const err = await r.json().catch(() => ({}));
-    throw new Error(err.message || err.error || 'Engine call failed');
+export async function callEngine(opts: EngineOpts & { timeoutMs?: number }): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), opts.timeoutMs ?? 120000);
+  try {
+    const r = await fetch('/api/engine', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts),
+      signal: controller.signal,
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error(err.message || err.error || 'Engine call failed');
+    }
+    const data = await r.json();
+    return data.text;
+  } catch (e: any) {
+    if (e.name === 'AbortError') {
+      throw new Error('This call took too long. Try again.');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timeout);
   }
-  const data = await r.json();
-  return data.text;
 }
 
 export function autoScrub(text: string): string {

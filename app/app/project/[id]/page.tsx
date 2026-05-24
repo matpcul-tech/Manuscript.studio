@@ -774,14 +774,37 @@ Rules:
           ? `Open the book. Establish the world, the voice, and the first conflict or question. Make the reader want to keep going. Open at the first real sentence, no throat-clearing.`
           : `Continue the book. The previous chapter ended like this:\n---\n${previousChapterTail}\n---\nPick up the narrative naturally. Maintain voice, character names, and tone established earlier.`;
 
-        const chapterText = await callEngine({
-          task: `TASK: Write Chapter ${i + 1} of this book. About ${perChapterTarget} words. ${contextBlock}`,
-          userPrompt: `BOOK DESCRIPTION:\n${data.quickPrompt}\n\nCHAPTER ${i + 1}: ${ch.title}\nSYNOPSIS: ${ch.synopsis}\n\nFULL OUTLINE FOR CONTEXT:\n${outline.chapters.map((c, idx) => `${idx + 1}. ${c.title}: ${c.synopsis}`).join('\n')}\n\nWrite Chapter ${i + 1}.`,
-          voiceSample: data.voiceSample,
-          voiceProfile: data.voiceProfile,
-          voiceNotes: data.voiceNotes,
-          maxTokens: 4000,
-        });
+        let chapterText = '';
+        let attemptedTwice = false;
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+          if (cancelRef.current) break;
+          try {
+            chapterText = await callEngine({
+              task: `TASK: Write Chapter ${i + 1} of this book. About ${perChapterTarget} words. ${contextBlock}`,
+              userPrompt: `BOOK DESCRIPTION:\n${data.quickPrompt}\n\nCHAPTER ${i + 1}: ${ch.title}\nSYNOPSIS: ${ch.synopsis}\n\nFULL OUTLINE FOR CONTEXT:\n${outline.chapters.map((c, idx) => `${idx + 1}. ${c.title}: ${c.synopsis}`).join('\n')}\n\nWrite Chapter ${i + 1}.`,
+              voiceSample: data.voiceSample,
+              voiceProfile: data.voiceProfile,
+              voiceNotes: data.voiceNotes,
+              maxTokens: 3000,
+              timeoutMs: 120000,
+            });
+            break;
+          } catch (err: any) {
+            if (attempt === 1) attemptedTwice = true;
+            if (attempt === 0) {
+              setQuickStatus(`Retrying chapter ${i + 1}...`);
+              await new Promise(r => setTimeout(r, 1500));
+            }
+          }
+        }
+
+        if (!chapterText) {
+          if (attemptedTwice) {
+            toast(`Could not generate chapter ${i + 1} after retry. Saved ${i} drafted chapter${i === 1 ? '' : 's'} so far.`, 'error');
+          }
+          break;
+        }
 
         if (cancelRef.current) break;
 
@@ -794,7 +817,10 @@ Rules:
       }
 
       if (drafted.length === 0) {
-        throw new Error('Cancelled before any chapters drafted.');
+        // Either cancelled before any chapter completed, or first chapter failed
+        // its retry. The in-loop toast already explained the failure case. For
+        // cancellation, finalize quietly so the finally block resets state.
+        return;
       }
 
       // Build chapters: drafted ones have body, others have empty body
