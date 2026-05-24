@@ -107,6 +107,10 @@ drop policy if exists "Users can view own usage" on engine_usage;
 create policy "Users can view own usage" on engine_usage
   for select using (auth.uid() = user_id);
 
+drop policy if exists "Users can insert own usage" on engine_usage;
+create policy "Users can insert own usage" on engine_usage
+  for insert with check (auth.uid() = user_id);
+
 -- Trigger to update updated_at
 create or replace function update_updated_at_column()
 returns trigger as $$
