@@ -1258,6 +1258,16 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
     }
   }
 
+  // Detect a "rewrite" that is functionally identical to the passage so we
+  // can drop it before the user ever sees it. Uses the alphanumeric skeleton
+  // so that whitespace, punctuation, and case differences do not count as
+  // real changes. The 8:27-style no-op case is the one this catches.
+  function isNoOpRewrite(passage: string, rewrite: string): boolean {
+    const a = passage.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const b = rewrite.toLowerCase().replace(/[^a-z0-9]/g, '');
+    return a.length > 0 && a === b;
+  }
+
   // Build a position map from "skeleton" form back to original indices.
   // Skeleton keeps only ASCII letters and digits, lowercased. Everything
   // else (punctuation, quotes, dashes, ellipses, whitespace, case) is
@@ -1357,23 +1367,29 @@ Return ONLY a JSON object with this exact shape:
 }
 
 Rules:
-- Return 3 to 8 issues maximum, prioritizing the most off-voice
+- Be CONSERVATIVE. Return 0 to 4 issues, never more. Quality over quantity.
+- Only flag passages where the rewrite is MEANINGFULLY DIFFERENT from the original and clearly improves voice match. Do not flag passages where the rewrite would be the same or near-identical.
+- The manuscript has likely already been through voice editing. Assume it is mostly correct. Only flag clear drifts.
 - The "passage" field MUST be an exact substring of the manuscript so it can be find-replaced
 - Rewrites must be in the trained voice, no em dashes, no chatbot vocabulary
-- If the passage is already consistent throughout, return { "issues": [] }
+- If the passage reads cleanly throughout, return { "issues": [] }. Returning zero issues is the correct answer when the manuscript is solid.
 - Return ONLY the JSON object. No markdown fences. No preamble.
 
-CRITICAL: The "passage" field must be a VERBATIM substring of the manuscript. Copy it character-for-character. Do not paraphrase. Do not change quote style. Do not collapse whitespace. Do not add or remove punctuation. If you cannot find a passage you can quote exactly, do not include that issue. The application will fail silently if the passage does not match exactly.`,
+CRITICAL: The "passage" field must be a VERBATIM substring of the manuscript. Copy it character-for-character. Do not paraphrase. Do not change quote style. Do not collapse whitespace. Do not add or remove punctuation. If you cannot find a passage you can quote exactly, do not include that issue.
+
+CRITICAL: The "rewrite" must be a real improvement. If you cannot produce a rewrite that is meaningfully different from the passage, do not include that issue. Do not propose rewrites that simply rephrase the original with no functional change.`,
         maxTokens: 3000,
       });
       const parsed = parseJsonResponse(result);
-      const issues: Issue[] = (parsed.issues || []).map((it: any, idx: number) => ({
-        id: `cons-${Date.now()}-${idx}`,
-        passage: it.passage,
-        rewrite: it.rewrite,
-        reason: it.reason,
-        applied: false,
-      }));
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({
+          id: `cons-${Date.now()}-${idx}`,
+          passage: it.passage,
+          rewrite: it.rewrite,
+          reason: it.reason,
+          applied: false,
+        }));
       setConsistencyIssues(issues);
       if (issues.length === 0) {
         toast('Voice is consistent. No issues found.', 'success');
@@ -1407,24 +1423,30 @@ Return ONLY a JSON object with this exact shape:
 }
 
 Rules:
-- Return 3 to 6 issues maximum, prioritizing the most pacing-broken passages
+- Be CONSERVATIVE. Return 0 to 3 issues, never more. Quality over quantity.
+- Only flag passages where pace is genuinely broken AND the rewrite is meaningfully tighter or expanded. Do not nitpick adequately-paced prose.
+- The manuscript has likely already been through pacing edits. Assume it is mostly correct. Only flag clear drag or rush.
 - The "passage" field MUST be an exact substring of the manuscript so it can be find-replaced
 - Rewrites preserve meaning and voice, only fix pace
 - No em dashes, no chatbot vocabulary
-- If pacing is solid throughout, return { "issues": [] }
+- If pacing reads cleanly throughout, return { "issues": [] }. Returning zero issues is the correct answer when pacing is solid.
 - Return ONLY the JSON object. No markdown fences. No preamble.
 
-CRITICAL: The "passage" field must be a VERBATIM substring of the manuscript. Copy it character-for-character. Do not paraphrase. Do not change quote style. Do not collapse whitespace. Do not add or remove punctuation. If you cannot find a passage you can quote exactly, do not include that issue. The application will fail silently if the passage does not match exactly.`,
+CRITICAL: The "passage" field must be a VERBATIM substring of the manuscript. Copy it character-for-character. Do not paraphrase. Do not change quote style. Do not collapse whitespace. Do not add or remove punctuation. If you cannot find a passage you can quote exactly, do not include that issue.
+
+CRITICAL: The "rewrite" must be a real improvement. If you cannot produce a rewrite that is meaningfully different from the passage, do not include that issue. Do not propose rewrites that simply rephrase the original with no functional change.`,
         maxTokens: 3000,
       });
       const parsed = parseJsonResponse(result);
-      const issues: Issue[] = (parsed.issues || []).map((it: any, idx: number) => ({
-        id: `pace-${Date.now()}-${idx}`,
-        passage: it.passage,
-        rewrite: it.rewrite,
-        reason: it.reason,
-        applied: false,
-      }));
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({
+          id: `pace-${Date.now()}-${idx}`,
+          passage: it.passage,
+          rewrite: it.rewrite,
+          reason: it.reason,
+          applied: false,
+        }));
       setPacingIssues(issues);
       if (issues.length === 0) {
         toast('Pacing is solid. No issues found.', 'success');
