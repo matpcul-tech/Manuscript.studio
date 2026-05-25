@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { callEngine, scrubText, countWords, computeAIScore, type AIScore } from '@/lib/engine';
 import { exportDocx, exportEpub, exportPdf, exportBundle } from '@/lib/exports';
 import { defaultProjectData, cid, type ProjectData, type Chapter, type Scene } from '@/lib/types';
+import { GenerationStream } from '@/components/GenerationStream';
 
 const STAGES = [
   { id: 'setup', label: 'Setup' },
@@ -195,7 +196,7 @@ export default function ProjectPage() {
       <div className="flex-1 overflow-hidden">
         {data.currentStage === 'setup' && <SetupStage data={data} updateData={updateData} onNext={() => setStage('voice')} toast={toast} />}
         {data.currentStage === 'voice' && <VoiceStage data={data} updateData={updateData} toast={toast} />}
-        {data.currentStage === 'write' && <WriteStage data={data} updateData={updateData} toast={toast} />}
+        {data.currentStage === 'write' && <WriteStage data={data} updateData={updateData} toast={toast} projectId={id} />}
         {data.currentStage === 'edit' && <EditStage data={data} updateData={updateData} toast={toast} activeScene={activeScene} />}
         {data.currentStage === 'cover' && <CoverStage data={data} updateData={updateData} toast={toast} />}
         {data.currentStage === 'publish' && <PublishStage data={data} updateData={updateData} toast={toast} />}
@@ -635,7 +636,7 @@ function VoiceStage({ data, updateData, toast }: any) {
 }
 
 /* ==================== WRITE STAGE ==================== */
-function WriteStage({ data, updateData, toast }: any) {
+function WriteStage({ data, updateData, toast, projectId }: any) {
   const [fabOpen, setFabOpen] = useState(false);
   const [activeScenePos, setActiveScenePos] = useState({ start: 0, end: 0 });
   const [draftModal, setDraftModal] = useState(false);
@@ -833,6 +834,7 @@ function WriteStage({ data, updateData, toast }: any) {
   const [quickStatus, setQuickStatus] = useState('');
   const [quickProgress, setQuickProgress] = useState({ done: 0, total: 0 });
   const [quickDraftMode, setQuickDraftMode] = useState<'opening' | 'all'>('all');
+  const [quickJobId, setQuickJobId] = useState<string | null>(null);
   const cancelRef = useRef(false);
 
   async function generateQuickDraft() {
@@ -841,177 +843,78 @@ function WriteStage({ data, updateData, toast }: any) {
       return;
     }
     const targetWords = data.quickWordTarget || 60000;
-
-    // Decide chapter count based on word target
-    let chapterCount = 12;
-    if (targetWords <= 3000) chapterCount = 1;
-    else if (targetWords <= 8000) chapterCount = 3;
-    else if (targetWords <= 20000) chapterCount = 5;
-    else if (targetWords <= 40000) chapterCount = 8;
-    else if (targetWords <= 70000) chapterCount = 12;
-    else chapterCount = 18;
-
-    cancelRef.current = false;
-    setQuickBusy('outline');
-    setQuickStatus(`Planning ${chapterCount} chapters...`);
+    setQuickBusy(quickDraftMode === 'all' ? 'all' : 'opening');
+    setQuickStatus('Starting...');
     setQuickProgress({ done: 0, total: 0 });
 
     try {
-      // STEP 1: outline as JSON
-      const outlineRaw = await callEngine({
-        task: '',
-        userPrompt: `BOOK DESCRIPTION:\n${data.quickPrompt}\n\nTARGET LENGTH: ${targetWords.toLocaleString()} words\nCHAPTERS: ${chapterCount}\n${data.title ? `WORKING TITLE: ${data.title}\n` : ''}${data.genre ? `GENRE: ${data.genre}\n` : ''}`,
-        systemOverride: `You are a book outlining engine. Given a description, target length, and chapter count, produce a chapter-by-chapter outline as STRICT JSON.
-
-Return ONLY a JSON object with this exact shape:
-{
-  "title": "suggested working title",
-  "chapters": [
-    { "title": "Chapter 1 title", "synopsis": "one sentence describing what happens in this chapter" },
-    { "title": "Chapter 2 title", "synopsis": "..." }
-  ]
-}
-
-Rules:
-- Produce exactly ${chapterCount} chapters
-- Chapter titles should be evocative, not generic (not "Chapter 1" / "Chapter 2")
-- Synopses are ONE sentence each, concrete and specific
-- Arc: setup, complication, escalation, climax, resolution proportional to chapter count
-- No em dashes anywhere
-- Return ONLY the JSON object. No markdown fences. No preamble. No explanation.`,
-        maxTokens: 2500,
+      const res = await fetch('/api/generate/quick-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectId,
+          quickPrompt: data.quickPrompt,
+          voiceSample: data.voiceSample,
+          voiceProfile: data.voiceProfile,
+          voiceNotes: data.voiceNotes,
+          targetWords,
+          mode: quickDraftMode,
+          title: data.title,
+          genre: data.genre,
+        }),
       });
-
-      if (cancelRef.current) { throw new Error('Cancelled.'); }
-
-      // Parse JSON (with cleanup)
-      let outline: { title: string; chapters: { title: string; synopsis: string }[] };
-      try {
-        const cleaned = outlineRaw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
-        outline = JSON.parse(cleaned);
-      } catch {
-        throw new Error('Could not parse outline. Try a more specific description.');
-      }
-      if (!outline.chapters || outline.chapters.length === 0) {
-        throw new Error('Outline came back empty. Try again.');
-      }
-
-      const wordsPerChapter = Math.round(targetWords / outline.chapters.length);
-      const perChapterTarget = Math.min(wordsPerChapter, 2500);
-
-      // STEP 2: draft chapters (either just opening, or all)
-      const draftAll = quickDraftMode === 'all';
-      const chaptersToDraft = draftAll ? outline.chapters.length : 1;
-
-      setQuickBusy(draftAll ? 'all' : 'opening');
-      setQuickProgress({ done: 0, total: chaptersToDraft });
-
-      const drafted: string[] = [];
-      let previousChapterTail = '';
-
-      for (let i = 0; i < chaptersToDraft; i++) {
-        if (cancelRef.current) break;
-
-        const ch = outline.chapters[i];
-        setQuickStatus(draftAll
-          ? `Writing chapter ${i + 1} of ${chaptersToDraft}: ${ch.title}`
-          : `Writing the opening chapter...`);
-
-        const contextBlock = i === 0
-          ? `Open the book. Establish the world, the voice, and the first conflict or question. Make the reader want to keep going. Open at the first real sentence, no throat-clearing.`
-          : `Continue the book. The previous chapter ended like this:\n---\n${previousChapterTail}\n---\nPick up the narrative naturally. Maintain voice, character names, and tone established earlier.`;
-
-        let chapterText = '';
-        let attemptedTwice = false;
-
-        for (let attempt = 0; attempt < 2; attempt++) {
-          if (cancelRef.current) break;
-          try {
-            chapterText = await callEngine({
-              task: `TASK: Write Chapter ${i + 1} of this book. About ${perChapterTarget} words. ${contextBlock}`,
-              userPrompt: `BOOK DESCRIPTION:\n${data.quickPrompt}\n\nCHAPTER ${i + 1}: ${ch.title}\nSYNOPSIS: ${ch.synopsis}\n\nFULL OUTLINE FOR CONTEXT:\n${outline.chapters.map((c, idx) => `${idx + 1}. ${c.title}: ${c.synopsis}`).join('\n')}\n\nWrite Chapter ${i + 1}.`,
-              voiceSample: data.voiceSample,
-              voiceProfile: data.voiceProfile,
-              voiceNotes: data.voiceNotes,
-              maxTokens: 3000,
-              timeoutMs: 120000,
-            });
-            break;
-          } catch (err: any) {
-            if (attempt === 1) attemptedTwice = true;
-            if (attempt === 0) {
-              setQuickStatus(`Retrying chapter ${i + 1}...`);
-              await new Promise(r => setTimeout(r, 1500));
-            }
-          }
-        }
-
-        if (!chapterText) {
-          if (attemptedTwice) {
-            toast(`Could not generate chapter ${i + 1} after retry. Saved ${i} drafted chapter${i === 1 ? '' : 's'} so far.`, 'error');
-          }
-          break;
-        }
-
-        if (cancelRef.current) break;
-
-        drafted.push(chapterText);
-        // Keep last ~400 words for continuity context in next chapter
-        const tail = chapterText.split(/\s+/).slice(-400).join(' ');
-        previousChapterTail = tail;
-
-        setQuickProgress({ done: i + 1, total: chaptersToDraft });
-      }
-
-      if (drafted.length === 0) {
-        // Either cancelled before any chapter completed, or first chapter failed
-        // its retry. The in-loop toast already explained the failure case. For
-        // cancellation, finalize quietly so the finally block resets state.
-        return;
-      }
-
-      // Build chapters: drafted ones have body, others have empty body
-      const newChapters: Chapter[] = outline.chapters.map((ch, i) => ({
-        id: cid(),
-        title: ch.title,
-        open: i === 0,
-        scenes: [{
-          id: cid(),
-          title: i === 0 ? 'Opening' : ch.synopsis.slice(0, 50),
-          body: i < drafted.length ? drafted[i] : '',
-        }],
-      }));
-
-      updateData((d: ProjectData) => ({
-        ...d,
-        title: d.title || outline.title || d.title,
-        chapters: newChapters,
-        activeSceneId: newChapters[0].scenes[0].id,
-        writeMode: 'manual',
-      }));
-
-      const draftedCount = drafted.length;
-      const remainingCount = outline.chapters.length - draftedCount;
-      if (cancelRef.current && draftedCount < chaptersToDraft) {
-        toast(`Cancelled. Saved ${draftedCount} drafted chapter${draftedCount === 1 ? '' : 's'} plus ${remainingCount} outlined.`, 'success');
-      } else if (draftedCount === outline.chapters.length) {
-        toast(`Drafted all ${draftedCount} chapters. Edit and polish from here.`, 'success');
-      } else {
-        toast(`Drafted ${draftedCount} chapter${draftedCount === 1 ? '' : 's'} plus ${remainingCount} chapter outline${remainingCount === 1 ? '' : 's'} to keep going.`, 'success');
-      }
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || json.message || 'Could not start quick draft.');
+      setQuickJobId(json.jobId);
     } catch (e: any) {
       toast(e.message || 'Quick draft failed.', 'error');
-    } finally {
       setQuickBusy('');
       setQuickStatus('');
       setQuickProgress({ done: 0, total: 0 });
-      cancelRef.current = false;
     }
   }
 
   function cancelQuickDraft() {
-    cancelRef.current = true;
-    setQuickStatus('Cancelling after current chapter...');
+    // With the new job pattern the work runs server-side, so this no longer
+    // cancels the underlying generation. It just stops watching from this
+    // tab. The job keeps streaming and the result lands in generation_jobs.
+    setQuickJobId(null);
+    setQuickBusy('');
+    setQuickStatus('');
+    setQuickProgress({ done: 0, total: 0 });
+    toast('Stopped watching. Your draft is still generating in the background.', 'success');
+  }
+
+  function handleQuickDraftComplete(outline: { title: string; chapters: { title: string; synopsis: string }[] }, chapterTexts: string[]) {
+    const newChapters: Chapter[] = outline.chapters.map((ch, i) => ({
+      id: cid(),
+      title: ch.title,
+      open: i === 0,
+      scenes: [{
+        id: cid(),
+        title: i === 0 ? 'Opening' : ch.synopsis.slice(0, 50),
+        body: i < chapterTexts.length ? chapterTexts[i] : '',
+      }],
+    }));
+    updateData((d: ProjectData) => ({
+      ...d,
+      title: d.title || outline.title || d.title,
+      chapters: newChapters,
+      activeSceneId: newChapters[0].scenes[0].id,
+      writeMode: 'manual',
+    }));
+    const draftedCount = chapterTexts.length;
+    const total = outline.chapters.length;
+    const remaining = total - draftedCount;
+    if (draftedCount === total) {
+      toast(`Drafted all ${draftedCount} chapters. Edit and polish from here.`, 'success');
+    } else {
+      toast(`Drafted ${draftedCount} chapter${draftedCount === 1 ? '' : 's'} plus ${remaining} chapter outline${remaining === 1 ? '' : 's'} to keep going.`, 'success');
+    }
+    setQuickJobId(null);
+    setQuickBusy('');
+    setQuickStatus('');
+    setQuickProgress({ done: 0, total: 0 });
   }
 
   // Determine if Quick Draft entry should show
@@ -1302,6 +1205,23 @@ Rules:
 
       {draftModal && <DraftModal data={data} onClose={() => setDraftModal(false)} onSubmit={draftScene} busy={busy} />}
       {rewriteModal && <RewriteModal editorRef={editorRef} onClose={() => setRewriteModal(false)} onSubmit={rewriteSelection} busy={busy} />}
+      {quickJobId && (
+        <GenerationStream
+          jobId={quickJobId}
+          onStatus={s => {
+            setQuickStatus(s.message);
+            setQuickProgress({ done: s.chaptersComplete, total: s.totalChapters });
+          }}
+          onComplete={({ outline, chapterTexts }) => handleQuickDraftComplete(outline, chapterTexts)}
+          onError={msg => {
+            toast(msg, 'error');
+            setQuickJobId(null);
+            setQuickBusy('');
+            setQuickStatus('');
+            setQuickProgress({ done: 0, total: 0 });
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { serve } from 'inngest/next';
 import { inngest } from '@/lib/inngest/client';
 import { ping } from '@/lib/inngest/functions/ping';
+import { generateQuickDraft } from '@/lib/inngest/functions/quick-draft';
 
 // Single endpoint Inngest calls back into. Each registered function shows up
 // in the Inngest dashboard after the first successful sync. New functions get
@@ -8,5 +9,5 @@ import { ping } from '@/lib/inngest/functions/ping';
 // description, export, etc).
 export const { GET, POST, PUT } = serve({
   client: inngest,
-  functions: [ping],
+  functions: [ping, generateQuickDraft],
 });
