@@ -917,6 +917,93 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     setQuickProgress({ done: 0, total: 0 });
   }
 
+  // Pending completed Quick Draft jobs that the user has not yet imported into
+  // this project. Catches the case where the worker finished but the browser
+  // tab missed the Realtime broadcast (background tab, network blip, 20-min
+  // jobs that outlive any WebSocket). Applied-state lives in localStorage so
+  // dismissing a job from one tab doesn't keep it showing in another.
+  const [pendingJobs, setPendingJobs] = useState<Array<{ id: string; result_text: string; created_at: string; chapter_count: number }>>([]);
+
+  useEffect(() => {
+    if (!projectId || quickJobId) return;
+    let cancelled = false;
+    (async () => {
+      const supabase = createClient();
+      const { data: rows } = await supabase
+        .from('generation_jobs')
+        .select('id, status, result_text, created_at')
+        .eq('project_id', projectId)
+        .eq('job_type', 'quick_draft')
+        .eq('status', 'complete')
+        .order('created_at', { ascending: false })
+        .limit(10);
+      if (cancelled || !rows) return;
+      const appliedKey = `manuscript:applied-jobs:${projectId}`;
+      let applied: string[] = [];
+      try { applied = JSON.parse(localStorage.getItem(appliedKey) || '[]'); } catch {}
+      const pending = rows
+        .filter((j: any) => !applied.includes(j.id) && j.result_text)
+        .map((j: any) => {
+          let chapterCount = 0;
+          try { chapterCount = (JSON.parse(j.result_text).chapterTexts || []).length; } catch {}
+          return { id: j.id, result_text: j.result_text, created_at: j.created_at, chapter_count: chapterCount };
+        });
+      setPendingJobs(pending);
+    })();
+    return () => { cancelled = true; };
+  }, [projectId, quickJobId]);
+
+  function importPendingJob(job: { id: string; result_text: string }) {
+    try {
+      const parsed = JSON.parse(job.result_text);
+      handleQuickDraftComplete(parsed.outline, parsed.chapterTexts);
+      const appliedKey = `manuscript:applied-jobs:${projectId}`;
+      let applied: string[] = [];
+      try { applied = JSON.parse(localStorage.getItem(appliedKey) || '[]'); } catch {}
+      applied.push(job.id);
+      localStorage.setItem(appliedKey, JSON.stringify(applied));
+      setPendingJobs(prev => prev.filter(j => j.id !== job.id));
+    } catch {
+      toast('Could not import this draft. The saved data is corrupted.', 'error');
+    }
+  }
+
+  function dismissPendingJob(jobId: string) {
+    const appliedKey = `manuscript:applied-jobs:${projectId}`;
+    let applied: string[] = [];
+    try { applied = JSON.parse(localStorage.getItem(appliedKey) || '[]'); } catch {}
+    applied.push(jobId);
+    localStorage.setItem(appliedKey, JSON.stringify(applied));
+    setPendingJobs(prev => prev.filter(j => j.id !== jobId));
+  }
+
+  const pendingBanner = pendingJobs.length > 0 ? (
+    <div className="bg-[var(--blue-soft)] border-b border-[var(--blue)]/20 px-6 py-3 flex-shrink-0">
+      <div className="max-w-5xl mx-auto flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-[var(--blue-deep)]">Completed draft ready to import</div>
+          <div className="text-xs text-[var(--ink-3)] mt-0.5">
+            {pendingJobs[0].chapter_count} chapter{pendingJobs[0].chapter_count === 1 ? '' : 's'} generated. Importing will replace the current chapter list.
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => dismissPendingJob(pendingJobs[0].id)}
+            className="px-3 py-1.5 rounded-md text-[var(--ink-3)] hover:text-[var(--ink)] text-xs font-semibold"
+          >
+            Dismiss
+          </button>
+          <button
+            onClick={() => importPendingJob(pendingJobs[0])}
+            className="px-3 py-1.5 rounded-md bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold text-xs shadow-sm"
+          >
+            Import {pendingJobs[0].chapter_count} chapter{pendingJobs[0].chapter_count === 1 ? '' : 's'}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   // Determine if Quick Draft entry should show
   const hasAnyContent = data.chapters.some((ch: Chapter) => ch.scenes.some((sc: Scene) => sc.body.trim().length > 0));
   const isFreshProject = data.chapters.length === 1 && data.chapters[0].scenes.length === 1 && !hasAnyContent;
@@ -924,7 +1011,9 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
 
   if (showQuickDraft) {
     return (
-      <div className="h-full overflow-y-auto">
+      <div className="h-full flex flex-col overflow-hidden">
+        {pendingBanner}
+        <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-6 py-12">
           {/* mode toggle */}
           <div className="flex items-center justify-center mb-8">
@@ -1067,12 +1156,15 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
             </div>
           )}
         </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="h-full grid grid-cols-[260px,1fr] overflow-hidden">
+    <div className="h-full flex flex-col overflow-hidden">
+      {pendingBanner}
+      <div className="flex-1 grid grid-cols-[260px,1fr] overflow-hidden">
       {/* TREE */}
       <aside className="bg-white border-r border-[var(--line)] flex flex-col overflow-hidden">
         <div className="px-4 pt-4.5 pb-2 flex items-center justify-between">
@@ -1222,6 +1314,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
           }}
         />
       )}
+      </div>
     </div>
   );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 type OutlineChapter = { title: string; synopsis: string };
@@ -27,10 +27,13 @@ type Props = {
   onError?: (message: string) => void;
 };
 
-// Subscribes to a job's Realtime channel and surfaces every progress event
-// via callbacks. Falls back to a one-shot DB read on mount so a job that
-// completed before the component subscribed still resolves cleanly. Cleans
-// up the channel on unmount.
+// Subscribes to a job's Realtime channel for low-latency progress updates AND
+// polls the generation_jobs row every 4 seconds as a durable fallback. Polling
+// is the source of truth: broadcasts get lost on backgrounded tabs, network
+// blips, idle Realtime timeouts, or 20-minute job durations that exceed any
+// reasonable WebSocket lifetime. The DB row always reflects the worker's
+// final state, so polling catches every completion regardless of what
+// Realtime did or did not deliver.
 export function GenerationStream({
   jobId,
   onStatus,
@@ -39,12 +42,52 @@ export function GenerationStream({
   onComplete,
   onError,
 }: Props) {
-  // Track whether onComplete has fired so a late DB poll doesn't double-fire
-  // if the Realtime channel already delivered the done event.
+  // Guards the completion handlers so a slow Realtime 'done' event arriving
+  // after the poll has already fired onComplete does not double-apply the
+  // chapters into the project.
   const completedRef = useRef(false);
 
   useEffect(() => {
     const supabase = createClient();
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    const finishWithResult = (parsed: QuickDraftResult) => {
+      if (completedRef.current) return;
+      completedRef.current = true;
+      onComplete(parsed);
+      if (pollTimer) clearInterval(pollTimer);
+    };
+
+    const finishWithError = (message: string) => {
+      if (completedRef.current) return;
+      completedRef.current = true;
+      onError?.(message);
+      if (pollTimer) clearInterval(pollTimer);
+    };
+
+    const checkJobRow = async () => {
+      if (cancelled || completedRef.current) return;
+      const { data } = await supabase
+        .from('generation_jobs')
+        .select('status, result_text, error_message')
+        .eq('id', jobId)
+        .single();
+      if (cancelled || !data) return;
+      if (data.status === 'complete' && data.result_text) {
+        try {
+          const parsed = JSON.parse(data.result_text);
+          finishWithResult({ outline: parsed.outline, chapterTexts: parsed.chapterTexts });
+        } catch {
+          finishWithError('Could not parse completed job result.');
+        }
+      } else if (data.status === 'failed') {
+        finishWithError(data.error_message || 'Generation failed.');
+      }
+    };
+
+    // Low-latency path: subscribe to broadcasts. When they work, the user
+    // sees per-chapter progress as it happens.
     const channel = supabase.channel(`job:${jobId}`, {
       config: { broadcast: { self: false } },
     });
@@ -69,48 +112,29 @@ export function GenerationStream({
         });
       })
       .on('broadcast', { event: 'done' }, ({ payload }) => {
-        if (completedRef.current) return;
-        completedRef.current = true;
-        onComplete({
+        finishWithResult({
           outline: payload.outline,
           chapterTexts: payload.chapterTexts,
         });
       })
       .on('broadcast', { event: 'error' }, ({ payload }) => {
-        onError?.(payload.message || 'Generation failed.');
+        finishWithError(payload.message || 'Generation failed.');
       })
       .subscribe();
 
-    // If the job already finished before we subscribed, the broadcast was
-    // lost (Supabase broadcast does not replay). Hit the DB once to recover
-    // the saved result_text.
-    (async () => {
-      const { data } = await supabase
-        .from('generation_jobs')
-        .select('status, result_text, error_message')
-        .eq('id', jobId)
-        .single();
-      if (!data) return;
-      if (data.status === 'complete' && data.result_text && !completedRef.current) {
-        try {
-          const parsed = JSON.parse(data.result_text);
-          completedRef.current = true;
-          onComplete({ outline: parsed.outline, chapterTexts: parsed.chapterTexts });
-        } catch {
-          onError?.('Could not parse completed job result.');
-        }
-      } else if (data.status === 'failed') {
-        onError?.(data.error_message || 'Generation failed.');
-      }
-    })();
+    // Durable path: immediate check + 4s poll. Catches completions whenever
+    // they happen, regardless of broadcast reliability. Stops itself once
+    // finishWithResult or finishWithError fires.
+    checkJobRow();
+    pollTimer = setInterval(checkJobRow, 4000);
 
     return () => {
+      cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
       channel.unsubscribe();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
-  // Headless component. The parent owns the UI; this just plumbs events
-  // through the callbacks. Returning null keeps it composable.
   return null;
 }
