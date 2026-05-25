@@ -146,3 +146,54 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function handle_new_user();
+
+-- ============================================================================
+-- Background job tracking for long-running AI generations.
+-- Each row is one generation attempt (chapter draft, back matter, description,
+-- export, etc). The API route inserts a 'queued' row in under 500ms; the
+-- Inngest worker picks it up, transitions it through running -> streaming ->
+-- complete, and writes the final result_text. Tokens are streamed live to
+-- the client via Supabase Realtime broadcast on channel `job:{id}`; this
+-- table holds the persisted state so users can close the browser mid-job
+-- and find the finished result waiting when they come back.
+-- ============================================================================
+
+create table if not exists generation_jobs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references auth.users(id) on delete cascade not null,
+  project_id uuid references projects(id) on delete cascade,
+  job_type text not null,
+  status text not null default 'queued',
+  prompt_input jsonb not null default '{}'::jsonb,
+  result_text text,
+  error_message text,
+  tokens_used integer,
+  model_used text,
+  started_at timestamp with time zone,
+  completed_at timestamp with time zone,
+  created_at timestamp with time zone default now()
+);
+
+create index if not exists generation_jobs_user_created_idx
+  on generation_jobs(user_id, created_at desc);
+
+create index if not exists generation_jobs_project_idx
+  on generation_jobs(project_id);
+
+-- Partial index keeps the stale-job watchdog cron cheap.
+create index if not exists generation_jobs_active_idx
+  on generation_jobs(status, created_at)
+  where status in ('queued', 'running', 'streaming');
+
+alter table generation_jobs enable row level security;
+
+-- Users can read their own jobs. The worker writes via service role, which
+-- bypasses RLS, so no UPDATE policy is needed for normal operation. Add one
+-- later if users need to cancel or edit their own jobs from the client.
+drop policy if exists "Users can view own jobs" on generation_jobs;
+create policy "Users can view own jobs" on generation_jobs
+  for select using (auth.uid() = user_id);
+
+drop policy if exists "Users can create own jobs" on generation_jobs;
+create policy "Users can create own jobs" on generation_jobs
+  for insert with check (auth.uid() = user_id);
