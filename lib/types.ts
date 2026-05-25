@@ -51,6 +51,48 @@ export type ProjectData = {
   kdpPrice: number;
   kdpSelect: boolean;
   kdpStepIndex: number;
+  // launch v2: sub-section workflow
+  launchSubsection: string;
+  frontMatter: {
+    authorFirst: string;
+    authorLast: string;
+    contributors: { role: string; first: string; last: string }[];
+    epigraph: { text: string; attribution: string };
+    foreword: string;
+    copyrightYear: number;
+    publisher: string;
+    fictionDisclaimer: boolean;
+  };
+  backMatter: {
+    sections: { id: string; type: string; enabled: boolean; data: any }[];
+    order: string[];
+  };
+  descriptionVariants: {
+    variantA: { html: string; plain: string };
+    variantB: { html: string; plain: string };
+    variantC: { html: string; plain: string };
+    selected: '' | 'a' | 'b' | 'c';
+  };
+  backCover: {
+    hookHeadline: string;
+    body: string;
+    pullQuote: string;
+    authorBioOneLine: string;
+    genreTag: string;
+  };
+  metadataPack: {
+    seriesName: string;
+    seriesNumber: number;
+    edition: number;
+    keywords: string[];
+    categories: { path: string; reason: string }[];
+    readingAgeMin: number;
+    readingAgeMax: number;
+    sexuallyExplicit: boolean;
+    isbn: string;
+    useKDPFreeISBN: boolean;
+  };
+  asin: string;
 };
 
 export function cid(): string {
@@ -92,5 +134,46 @@ export function defaultProjectData(): ProjectData {
     kdpPrice: 4.99,
     kdpSelect: false,
     kdpStepIndex: 0,
+    launchSubsection: 'frontmatter',
+    frontMatter: {
+      authorFirst: '',
+      authorLast: '',
+      contributors: [],
+      epigraph: { text: '', attribution: '' },
+      foreword: '',
+      copyrightYear: new Date().getFullYear(),
+      publisher: 'Published independently',
+      fictionDisclaimer: true,
+    },
+    backMatter: {
+      sections: [],
+      order: [],
+    },
+    descriptionVariants: {
+      variantA: { html: '', plain: '' },
+      variantB: { html: '', plain: '' },
+      variantC: { html: '', plain: '' },
+      selected: '',
+    },
+    backCover: {
+      hookHeadline: '',
+      body: '',
+      pullQuote: '',
+      authorBioOneLine: '',
+      genreTag: '',
+    },
+    metadataPack: {
+      seriesName: '',
+      seriesNumber: 0,
+      edition: 1,
+      keywords: ['', '', '', '', '', '', ''],
+      categories: [],
+      readingAgeMin: 0,
+      readingAgeMax: 0,
+      sexuallyExplicit: false,
+      isbn: '',
+      useKDPFreeISBN: true,
+    },
+    asin: '',
   };
 }
