@@ -131,3 +131,88 @@ export function computeAIScore(text: string): AIScore {
   }
   return { density, totalTells, totalWords, grade, risk, color, byPattern };
 }
+
+export type SomaticScore = {
+  score: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F';
+  label: string;
+  color: string;
+  issues: SomaticIssue[];
+};
+
+export type SomaticIssue = {
+  id: string;
+  passage: string;
+  rewrite: string;
+  reason: string;
+  applied: boolean;
+};
+
+// Cheap browser-side estimate for live feedback while typing. The real
+// validation pass goes through callEngine and Claude; this exists so the UI
+// can hint at grounding density without paying for an API round trip on
+// every keystroke. Picks up sensory and bodily vocabulary plus common
+// abstract telling phrases.
+export function estimateSomaticScore(text: string): { score: number; grade: string; color: string } {
+  if (!text || text.trim().length < 100) {
+    return { score: 0, grade: 'F', color: '#9ca3af' };
+  }
+
+  const SENSORY_WORDS = [
+    'cold', 'warm', 'hot', 'rough', 'smooth', 'sharp', 'soft', 'damp', 'dry',
+    'wet', 'heavy', 'light', 'sticky', 'slick', 'grit', 'fabric',
+    'smell', 'scent', 'odor', 'aroma', 'stink', 'reek', 'fragrance',
+    'taste', 'bitter', 'sweet', 'sour', 'salt', 'metallic', 'copper', 'iron',
+    'sound', 'noise', 'silence', 'hum', 'creak', 'click', 'thud', 'crackle',
+    'whisper', 'shout', 'rasp', 'gasp', 'breath',
+    'shadow', 'glint', 'gleam', 'flicker', 'dim', 'bright', 'glow', 'flash',
+    'hand', 'hands', 'fingers', 'palm', 'wrist', 'chest', 'throat', 'mouth',
+    'jaw', 'shoulder', 'shoulders', 'neck', 'spine', 'gut', 'stomach',
+    'forehead', 'temple', 'skin', 'pulse', 'heart', 'lungs', 'knees',
+    'flinch', 'shiver', 'shudder', 'lean', 'crouch', 'twitch', 'tense',
+    'grip', 'clench', 'tighten', 'press', 'pull', 'push', 'reach', 'breathe',
+    'inhale', 'exhale', 'swallow', 'cough', 'tremble',
+  ];
+
+  const ABSTRACT_TELLS = [
+    'felt that', 'thought about', 'realized', 'remembered that',
+    'experienced', 'reflected', 'considered', 'pondered',
+    'essence', 'nature of', 'sense of', 'feeling of',
+    'in some way', 'somehow', 'somewhat', 'seemed to',
+  ];
+
+  const lower = text.toLowerCase();
+  const words = lower.match(/\b\w+\b/g) || [];
+  const wordCount = words.length;
+
+  let sensoryHits = 0;
+  SENSORY_WORDS.forEach(w => {
+    const re = new RegExp(`\\b${w}\\b`, 'gi');
+    const matches = lower.match(re);
+    if (matches) sensoryHits += matches.length;
+  });
+
+  let abstractHits = 0;
+  ABSTRACT_TELLS.forEach(phrase => {
+    const re = new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+    const matches = lower.match(re);
+    if (matches) abstractHits += matches.length;
+  });
+
+  const sensoryDensity = (sensoryHits / wordCount) * 1000;
+  const abstractDensity = (abstractHits / wordCount) * 1000;
+
+  const rawScore = Math.min(1, sensoryDensity / 25);
+  const penalty = Math.min(0.3, abstractDensity / 30);
+  const score = Math.max(0, rawScore - penalty);
+
+  let grade: string;
+  let color: string;
+  if (score >= 0.85) { grade = 'A'; color = '#10b981'; }
+  else if (score >= 0.7) { grade = 'B'; color = '#10b981'; }
+  else if (score >= 0.5) { grade = 'C'; color = '#f59e0b'; }
+  else if (score >= 0.3) { grade = 'D'; color = '#f59e0b'; }
+  else { grade = 'F'; color = '#ef4444'; }
+
+  return { score, grade, color };
+}

@@ -1327,6 +1327,8 @@ function EditStage({ data, updateData, toast, activeScene }: any) {
   const [consistencyIssues, setConsistencyIssues] = useState<Issue[] | null>(null);
   const [pacingIssues, setPacingIssues] = useState<Issue[] | null>(null);
   const [structureIssues, setStructureIssues] = useState<StructureIssue[] | null>(null);
+  const [somaticScore, setSomaticScore] = useState<{ score: number; grade: string; color: string; label: string } | null>(null);
+  const [somaticIssues, setSomaticIssues] = useState<Issue[] | null>(null);
   const [applyingId, setApplyingId] = useState('');
 
   function getTarget() {
@@ -1693,8 +1695,81 @@ Rules:
     }
   }
 
-  function handleAcceptIssue(kind: 'cons' | 'pace', id: string) {
-    const list = kind === 'cons' ? consistencyIssues : pacingIssues;
+  async function checkSomatic() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('somatic');
+    setSomaticIssues(null);
+    setSomaticScore(null);
+
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Manuscript passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a literary fiction editor specializing in somatic interiority. Score the passage on physical and sensory grounding. High-quality literary prose grounds the reader in the protagonist's body and senses: concrete physical detail, sensory specifics, body in space, interior physical reactions, action that carries emotion.
+
+Low somatic interiority shows: abstract emotion words ("she felt sad"), reported thinking ("he thought about how"), generalizations, distant narration, summary instead of scene.
+
+Return ONLY a JSON object with this shape:
+{
+  "score": 0.65,
+  "label": "one sentence summary of the prose's somatic quality",
+  "issues": [
+    {
+      "passage": "exact verbatim substring from the manuscript that lacks somatic grounding (10 to 80 words, must match exactly for find-replace)",
+      "rewrite": "the same passage rewritten with concrete physical grounding, sensory detail, body in space",
+      "reason": "one sentence explaining what was abstract or disembodied"
+    }
+  ]
+}
+
+Rules:
+- score is a decimal 0 to 1. Use this guide: 0.85+ for prose that lives in the body throughout; 0.70-0.85 for solid literary fiction; 0.50-0.70 for competent but distant prose; 0.30-0.50 for mostly abstract or chatbot-like prose; below 0.30 for fully disembodied summary.
+- label is one sentence summarizing the score
+- Return 3 to 8 issues prioritizing the most disembodied passages
+- The passage field MUST be an EXACT verbatim substring of the manuscript. Copy character for character. Do not paraphrase or normalize. The application will silently fail if the passage does not match exactly.
+- Rewrites must add concrete sensory and bodily detail without inventing facts. Preserve all character actions, dialogue, and plot beats.
+- No em dashes. No chatbot vocabulary.
+- If the prose has high somatic interiority throughout, return { "score": 0.9, "label": "...", "issues": [] }
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 3500,
+        timeoutMs: 90000,
+      });
+
+      const cleaned = result.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      const score = typeof parsed.score === 'number' ? parsed.score : 0.5;
+      let grade: string;
+      let color: string;
+      if (score >= 0.85) { grade = 'A'; color = '#10b981'; }
+      else if (score >= 0.7) { grade = 'B'; color = '#10b981'; }
+      else if (score >= 0.5) { grade = 'C'; color = '#f59e0b'; }
+      else if (score >= 0.3) { grade = 'D'; color = '#f59e0b'; }
+      else { grade = 'F'; color = '#ef4444'; }
+
+      setSomaticScore({ score, grade, color, label: parsed.label || '' });
+
+      const issues: Issue[] = (parsed.issues || []).map((it: any, idx: number) => ({
+        id: `somatic-${Date.now()}-${idx}`,
+        passage: it.passage,
+        rewrite: it.rewrite,
+        reason: it.reason,
+        applied: false,
+      }));
+      setSomaticIssues(issues);
+
+      if (issues.length === 0 && score >= 0.85) {
+        toast('Prose is well-grounded throughout. No issues found.', 'success');
+      }
+    } catch (e: any) {
+      toast(e.message || 'Somatic check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  function handleAcceptIssue(kind: 'cons' | 'pace' | 'somatic', id: string) {
+    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : somaticIssues;
     if (!list) return;
     const issue = list.find(i => i.id === id);
     if (!issue || issue.applied) return;
@@ -1703,7 +1778,9 @@ Rules:
     const applied = applyIssueRewrite(issue);
     if (applied) {
       const next = list.map(i => i.id === id ? { ...i, applied: true } : i);
-      if (kind === 'cons') setConsistencyIssues(next); else setPacingIssues(next);
+      if (kind === 'cons') setConsistencyIssues(next);
+      else if (kind === 'pace') setPacingIssues(next);
+      else setSomaticIssues(next);
       toast('Applied.', 'success');
     } else {
       toast('Could not find that exact passage. The text may have changed. Try Re-run check to scan the current text.', 'error');
@@ -1711,15 +1788,17 @@ Rules:
     setApplyingId('');
   }
 
-  function handleRejectIssue(kind: 'cons' | 'pace', id: string) {
-    const list = kind === 'cons' ? consistencyIssues : pacingIssues;
+  function handleRejectIssue(kind: 'cons' | 'pace' | 'somatic', id: string) {
+    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : somaticIssues;
     if (!list) return;
     const next = list.filter(i => i.id !== id);
-    if (kind === 'cons') setConsistencyIssues(next); else setPacingIssues(next);
+    if (kind === 'cons') setConsistencyIssues(next);
+    else if (kind === 'pace') setPacingIssues(next);
+    else setSomaticIssues(next);
   }
 
-  function handleFixAll(kind: 'cons' | 'pace') {
-    const list = kind === 'cons' ? consistencyIssues : pacingIssues;
+  function handleFixAll(kind: 'cons' | 'pace' | 'somatic') {
+    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : somaticIssues;
     if (!list || list.length === 0) return;
     const unapplied = list.filter(i => !i.applied);
     if (unapplied.length === 0) { toast('All fixes already applied.', 'success'); return; }
@@ -1757,7 +1836,9 @@ Rules:
     const successCount = successIds.size;
     const failCount = unapplied.length - successCount;
     const nextList = list.map(i => successIds.has(i.id) ? { ...i, applied: true } : i);
-    if (kind === 'cons') setConsistencyIssues(nextList); else setPacingIssues(nextList);
+    if (kind === 'cons') setConsistencyIssues(nextList);
+    else if (kind === 'pace') setPacingIssues(nextList);
+    else setSomaticIssues(nextList);
 
     if (successCount > 0 && failCount === 0) {
       toast(`Applied ${successCount} fix${successCount === 1 ? '' : 'es'}.`, 'success');
@@ -1772,7 +1853,7 @@ Rules:
     <div className="h-full overflow-y-auto p-9">
       <div className="max-w-[1320px] mx-auto">
         <h2 className="font-display text-3xl font-semibold mb-1.5">Edit and polish</h2>
-        <p className="text-[var(--ink-3)] mb-6">AI Detection Score plus voice consistency, pacing, and structure checks. Each issue comes with a one-click fix.</p>
+        <p className="text-[var(--ink-3)] mb-6">AI Detection Score, voice consistency, pacing, structure, and somatic interiority. Each check finds specific issues and applies rewrites with one click.</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-5">
           <div className="bg-white rounded-xl border border-[var(--line)] p-10 shadow-sm max-h-[calc(100vh-180px)] overflow-y-auto font-serif text-[16px] leading-[1.78] text-[var(--ink)] whitespace-pre-wrap">
@@ -1968,6 +2049,62 @@ Rules:
                 <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
                   Structure is solid.
+                </div>
+              )}
+            </div>
+
+            <div className={editCard}>
+              <div className="flex items-center justify-between mb-1">
+                <h4 className="font-display text-[17px] font-semibold">Somatic Interiority</h4>
+                <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--ink-4)]">Studio</span>
+              </div>
+              <p className="text-xs text-[var(--ink-3)] mb-3">How grounded is the prose in the protagonist's body and senses? The deepest test of literary quality.</p>
+
+              <button onClick={checkSomatic} disabled={busy === 'somatic'} className={btnGhostFull}>
+                {busy === 'somatic' ? <>Analyzing<span className="dots"><span></span><span></span><span></span></span></> : somaticScore ? 'Re-run analysis' : 'Run somatic analysis'}
+              </button>
+
+              {somaticScore && (
+                <div className="mt-4 p-4 rounded-xl flex items-center gap-4" style={{ background: somaticScore.color + '14', border: `1px solid ${somaticScore.color}30` }}>
+                  <div className="w-[68px] h-[68px] rounded-2xl grid place-items-center flex-shrink-0 font-display font-bold text-[42px] leading-none" style={{ background: somaticScore.color, color: '#fff' }}>
+                    {somaticScore.grade}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-bold tracking-wider uppercase mb-1" style={{ color: somaticScore.color }}>
+                      {(somaticScore.score * 100).toFixed(0)}% grounded
+                    </div>
+                    <div className="text-[12.5px] leading-snug text-[var(--ink-2)] font-medium">
+                      {somaticScore.label}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {somaticIssues && somaticIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">
+                      {somaticIssues.filter(i => !i.applied).length} of {somaticIssues.length} unfixed
+                    </div>
+                    <button
+                      onClick={() => handleFixAll('somatic')}
+                      className="text-xs font-semibold text-[var(--blue-deep)] hover:underline"
+                      disabled={somaticIssues.every(i => i.applied)}
+                    >
+                      Fix all
+                    </button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {somaticIssues.map(issue => (
+                      <IssueCard
+                        key={issue.id}
+                        issue={issue}
+                        applying={applyingId === issue.id}
+                        onAccept={() => handleAcceptIssue('somatic', issue.id)}
+                        onReject={() => handleRejectIssue('somatic', issue.id)}
+                      />
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
