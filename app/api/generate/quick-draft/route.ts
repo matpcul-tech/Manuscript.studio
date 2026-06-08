@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { inngest } from '@/lib/inngest/client';
+import { checkGenerationLimit, incrementGenerationCount } from '@/lib/checkGenerationLimit';
 
-// Enqueue route for Quick Draft. Validates auth, applies the same daily cap
-// the engine route uses, creates the generation_jobs row, fires one Inngest
-// event, and returns the job id. Never blocks on Anthropic.
+// Enqueue route for Quick Draft. Validates auth, checks monthly generation limit,
+// creates the generation_jobs row, fires one Inngest event, and returns the job id.
 export const runtime = 'nodejs';
 export const maxDuration = 10;
 
@@ -46,30 +46,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'mode must be "opening" or "all"' }, { status: 400 });
   }
 
-  // Same daily cap pattern as /api/engine for now. Replace with a proper
-  // rate limiter (Upstash sliding window) in a later slice.
-  const startOfDay = new Date();
-  startOfDay.setHours(0, 0, 0, 0);
-  const { data: usageRows } = await supabase
-    .from('engine_usage')
-    .select('id')
-    .eq('user_id', user.id)
-    .gte('created_at', startOfDay.toISOString());
-  const { data: sub } = await supabase
-    .from('subscriptions')
-    .select('plan')
-    .eq('user_id', user.id)
-    .single();
-  const plan = sub?.plan || 'free';
-  const dailyCap = plan === 'pro' ? 500 : plan === 'studio' ? 2000 : 30;
-  if (usageRows && usageRows.length >= dailyCap) {
-    return NextResponse.json(
-      {
-        error: 'Daily limit reached',
-        message: `You have used ${usageRows.length} of ${dailyCap} engine calls today. Upgrade for more.`,
-      },
-      { status: 429 }
-    );
+  const limitCheck = await checkGenerationLimit(user.id);
+  if (!limitCheck.allowed) {
+    return NextResponse.json({ error: limitCheck.message }, { status: 403 });
   }
 
   const words = Number(targetWords) || 60000;
@@ -117,5 +96,6 @@ export async function POST(req: Request) {
     },
   });
 
+  await incrementGenerationCount(user.id);
   return NextResponse.json({ jobId: job.id });
 }

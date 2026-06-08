@@ -17,14 +17,32 @@ const PLANS = [
     name: 'Pro',
     price: '$19',
     sub: 'per month',
-    items: ['Unlimited projects', 'Unlimited voice profiles', '500 engine calls per day', 'All exports (EPUB, PDF, .docx)', 'Cover designer', 'Voice consistency checks', 'Priority engine'],
+    badge: 'Most popular',
+    items: [
+      '150 AI generations per month',
+      'Unlimited manuscripts',
+      'Full Publishing Pack',
+      'Title and Subtitle Generator',
+      'All exports (.docx, .txt)',
+      'Voice consistency check',
+      'Sovereign Prose Validator',
+    ],
   },
   {
     tier: 'studio',
     name: 'Studio',
     price: '$39',
     sub: 'per month',
-    items: ['Everything in Pro', '2,000 engine calls per day', 'Whole-manuscript line edit', 'AI cover backgrounds (coming)', 'Spine + back cover for paperback', 'Priority support'],
+    items: [
+      '500 AI generations per month',
+      'Unlimited manuscripts',
+      'Everything in Pro',
+      'Voice training upload',
+      'Export All zip download',
+      'Whole manuscript line edit',
+      'Priority support',
+      'AI cover backgrounds (coming soon)',
+    ],
   },
 ];
 
@@ -156,6 +174,21 @@ export default function BillingPage() {
 
             {error && (
               <div className="text-sm text-[var(--red)] bg-[var(--red-soft)] rounded-lg px-4 py-3 mb-6">{error}</div>
+            )}
+
+            {/* Free plan summary -- shown when on free plan */}
+            {!isPaid && (
+              <div className="bg-[var(--bg-3)] rounded-2xl border border-[var(--line)] p-6 mb-6">
+                <div className="text-xs font-bold tracking-wider text-[var(--ink-4)] uppercase mb-2">Free plan includes</div>
+                <ul className="space-y-1.5">
+                  {['3 AI generations per month', '3 manuscripts', 'Quick Draft (limited)', 'KDP Launch Walkthrough', 'Basic structure check'].map(it => (
+                    <li key={it} className="text-sm text-[var(--ink-2)] flex items-start gap-2">
+                      <span className="text-[var(--green)] font-bold mt-0.5 flex-shrink-0">&#10003;</span>
+                      <span>{it}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
 
             {/* Upgrade options -- only shown for free users */}

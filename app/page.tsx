@@ -1,3 +1,7 @@
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 // SVG icon primitives -- all 24x24 viewBox, stroke-based
@@ -107,35 +111,76 @@ const STEPS = [
 const PLANS = [
   {
     name: 'Free',
+    tier: 'free',
     price: '$0',
     sub: 'forever',
-    items: ['1 project', '1 voice profile', '30 engine calls per day', 'Export .docx and .txt', 'No credit card required'],
-    cta: 'Start free',
+    items: [
+      '3 AI generations per month',
+      '3 manuscripts',
+      'Quick Draft (limited)',
+      'KDP Launch Walkthrough',
+      'Basic structure check',
+    ],
+    cta: 'Start Free',
     primary: false,
-    href: '/login',
   },
   {
     name: 'Pro',
+    tier: 'pro',
     price: '$19',
     sub: 'per month',
-    items: ['Unlimited projects', 'Unlimited voice profiles', '500 engine calls per day', 'All exports (EPUB, PDF, .docx)', 'Cover designer', 'Voice consistency checks', 'Priority engine'],
-    cta: 'Go Pro',
-    primary: true,
     badge: 'Most popular',
-    href: '/billing',
+    items: [
+      '150 AI generations per month',
+      'Unlimited manuscripts',
+      'Full Publishing Pack',
+      'Title and Subtitle Generator',
+      'All exports (.docx, .txt)',
+      'Voice consistency check',
+      'Sovereign Prose Validator',
+    ],
+    cta: 'Upgrade to Pro',
+    primary: true,
   },
   {
     name: 'Studio',
+    tier: 'studio',
     price: '$39',
     sub: 'per month',
-    items: ['Everything in Pro', '2,000 engine calls per day', 'Whole-manuscript line edit', 'AI cover backgrounds (coming)', 'Spine + back cover for paperback', 'Priority support'],
-    cta: 'Go Studio',
+    items: [
+      '500 AI generations per month',
+      'Unlimited manuscripts',
+      'Everything in Pro',
+      'Voice training upload',
+      'Export All zip download',
+      'Whole manuscript line edit',
+      'Priority support',
+      'AI cover backgrounds (coming soon)',
+    ],
+    cta: 'Upgrade to Studio',
     primary: false,
-    href: '/billing',
   },
 ];
 
 export default function LandingPage() {
+  const router = useRouter();
+  const [checkoutLoading, setCheckoutLoading] = useState('');
+
+  async function startCheckout(tier: string) {
+    setCheckoutLoading(tier);
+    try {
+      const res = await fetch('/api/stripe/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier }),
+      });
+      const data = await res.json();
+      if (res.status === 401) { router.push('/login'); return; }
+      if (data.url) { window.location.href = data.url; return; }
+    } catch {}
+    setCheckoutLoading('');
+  }
+
   return (
     <main className="min-h-screen bg-white">
 
@@ -295,12 +340,22 @@ export default function LandingPage() {
                     </li>
                   ))}
                 </ul>
-                <Link
-                  href={plan.href}
-                  className={`block w-full text-center py-3 rounded-lg font-semibold transition ${plan.primary ? 'bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white shadow-[0_4px_14px_rgba(79,109,245,0.4)]' : 'bg-white border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)]'}`}
-                >
-                  {plan.cta}
-                </Link>
+                {plan.tier === 'free' ? (
+                  <Link
+                    href="/login"
+                    className="block w-full text-center py-3 rounded-lg font-semibold transition bg-white border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)]"
+                  >
+                    {plan.cta}
+                  </Link>
+                ) : (
+                  <button
+                    onClick={() => startCheckout(plan.tier)}
+                    disabled={!!checkoutLoading}
+                    className={`block w-full text-center py-3 rounded-lg font-semibold transition disabled:opacity-60 ${plan.primary ? 'bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white shadow-[0_4px_14px_rgba(79,109,245,0.4)]' : 'bg-white border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)]'}`}
+                  >
+                    {checkoutLoading === plan.tier ? 'Loading...' : plan.cta}
+                  </button>
+                )}
               </div>
             ))}
           </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { checkGenerationLimit, incrementGenerationCount } from '@/lib/checkGenerationLimit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -63,30 +64,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing userPrompt' }, { status: 400 });
     }
 
-    // Fair-use throttling: cap calls per user per day
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-    const { data: usageRows } = await supabase
-      .from('engine_usage')
-      .select('id')
-      .eq('user_id', user.id)
-      .gte('created_at', startOfDay.toISOString());
-
-    // Free tier: 30 calls/day. Adjust based on subscription.
-    const { data: sub } = await supabase
-      .from('subscriptions')
-      .select('plan')
-      .eq('user_id', user.id)
-      .single();
-
-    const plan = sub?.plan || 'free';
-    const dailyCap = plan === 'pro' ? 500 : plan === 'studio' ? 2000 : 30;
-
-    if (usageRows && usageRows.length >= dailyCap) {
-      return NextResponse.json({
-        error: 'Daily limit reached',
-        message: `You have used ${usageRows.length} of ${dailyCap} engine calls today. Upgrade for more.`,
-      }, { status: 429 });
+    const limitCheck = await checkGenerationLimit(user.id);
+    if (!limitCheck.allowed) {
+      return NextResponse.json({ error: limitCheck.message }, { status: 403 });
     }
 
     const systemPrompt = systemOverride
@@ -108,13 +88,15 @@ export async function POST(req: NextRequest) {
 
     const cleaned = autoScrub(text);
 
-    // Log usage
-    await supabase.from('engine_usage').insert({
-      user_id: user.id,
-      task: task || 'unknown',
-      input_tokens: response.usage.input_tokens,
-      output_tokens: response.usage.output_tokens,
-    });
+    await Promise.all([
+      supabase.from('engine_usage').insert({
+        user_id: user.id,
+        task: task || 'unknown',
+        input_tokens: response.usage.input_tokens,
+        output_tokens: response.usage.output_tokens,
+      }),
+      incrementGenerationCount(user.id),
+    ]);
 
     return NextResponse.json({
       text: cleaned,

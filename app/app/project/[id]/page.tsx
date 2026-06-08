@@ -294,13 +294,13 @@ export default function ProjectPage() {
 
       {/* STAGES */}
       <div className="flex-1 overflow-hidden">
-        {data.currentStage === 'setup' && <SetupStage data={data} updateData={updateData} onNext={() => setStage('voice')} toast={toast} />}
-        {data.currentStage === 'voice' && <VoiceStage data={data} updateData={updateData} toast={toast} />}
+        {data.currentStage === 'setup' && <SetupStage data={data} updateData={updateData} onNext={() => setStage('voice')} toast={toast} plan={plan} />}
+        {data.currentStage === 'voice' && <VoiceStage data={data} updateData={updateData} toast={toast} plan={plan} />}
         {data.currentStage === 'write' && <WriteStage data={data} updateData={updateData} toast={toast} projectId={id} />}
         {data.currentStage === 'edit' && <EditStage data={data} updateData={updateData} toast={toast} activeScene={activeScene} plan={plan} />}
         {data.currentStage === 'cover' && <CoverStage data={data} updateData={updateData} toast={toast} plan={plan} />}
         {data.currentStage === 'publish' && <PublishStage data={data} updateData={updateData} toast={toast} plan={plan} />}
-        {data.currentStage === 'launch' && <LaunchStage data={data} updateData={updateData} toast={toast} />}
+        {data.currentStage === 'launch' && <LaunchStage data={data} updateData={updateData} toast={toast} plan={plan} />}
       </div>
 
       {/* TOAST */}
@@ -316,7 +316,7 @@ export default function ProjectPage() {
 }
 
 /* ==================== SETUP STAGE ==================== */
-function SetupStage({ data, updateData, onNext, toast }: any) {
+function SetupStage({ data, updateData, onNext, toast, plan }: any) {
   function f<K extends keyof ProjectData>(key: K, val: ProjectData[K]) {
     updateData((d: ProjectData) => ({ ...d, [key]: val }));
   }
@@ -443,18 +443,25 @@ Return ONLY the JSON object. No markdown fences. No preamble.`,
                   className={inputCls + ' flex-1'}
                   placeholder="A Spirit Reborn"
                 />
-                <button
-                  type="button"
-                  onClick={generateTitles}
-                  className="px-3 py-2 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold flex items-center gap-1.5 transition flex-shrink-0"
-                  title="Generate title and subtitle ideas"
-                >
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-                    <path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5z"/>
-                    <path d="M19 14l.7 2.1L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.9z"/>
-                  </svg>
-                  Suggest
-                </button>
+                {plan === 'free' ? (
+                  <Link href="/billing" className="px-3 py-2 rounded-lg border border-[var(--line)] text-[var(--ink-4)] text-xs font-semibold flex items-center gap-1.5 flex-shrink-0" title="Pro plan required">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    Pro
+                  </Link>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={generateTitles}
+                    className="px-3 py-2 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold flex items-center gap-1.5 transition flex-shrink-0"
+                    title="Generate title and subtitle ideas"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
+                      <path d="M12 2l1.5 4.5L18 8l-4.5 1.5L12 14l-1.5-4.5L6 8l4.5-1.5z"/>
+                      <path d="M19 14l.7 2.1L22 17l-2.3.7L19 20l-.7-2.3L16 17l2.3-.9z"/>
+                    </svg>
+                    Suggest
+                  </button>
+                )}
               </div>
             </Field>
             <Field label="Subtitle (optional)">
@@ -548,7 +555,7 @@ Return ONLY the JSON object. No markdown fences. No preamble.`,
 }
 
 /* ==================== VOICE STAGE ==================== */
-function VoiceStage({ data, updateData, toast }: any) {
+function VoiceStage({ data, updateData, toast, plan }: any) {
   const [studying, setStudying] = useState(false);
   const [parsing, setParsing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -628,44 +635,54 @@ function VoiceStage({ data, updateData, toast }: any) {
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,320px] gap-5">
           <div className="bg-white border border-[var(--line)] rounded-xl p-6 shadow-sm">
-            {/* Upload zone */}
-            <div
-              onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={onDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl px-6 py-7 mb-4 cursor-pointer transition text-center ${
-                dragOver
-                  ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
-                  : 'border-[var(--line)] hover:border-[var(--blue)] hover:bg-[var(--blue-tint)]'
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept=".txt,.md,.docx,.pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
-                onChange={e => e.target.files && handleFiles(e.target.files)}
-                className="hidden"
-              />
-              <div className="flex items-center justify-center mb-2">
-                <div className="w-11 h-11 rounded-full bg-[var(--blue-soft)] text-[var(--blue-deep)] grid place-items-center">
-                  {parsing ? (
-                    <span className="dots"><span></span><span></span><span></span></span>
-                  ) : (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                      <polyline points="17 8 12 3 7 8"/>
-                      <line x1="12" y1="3" x2="12" y2="15"/>
-                    </svg>
-                  )}
+            {/* Upload zone -- Studio only */}
+            {plan !== 'studio' ? (
+              <div className="border-2 border-dashed border-[var(--line)] rounded-xl px-6 py-7 mb-4 text-center">
+                <div className="w-11 h-11 rounded-full bg-[var(--bg-3)] text-[var(--ink-4)] grid place-items-center mx-auto mb-2">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 </div>
+                <div className="text-sm font-semibold text-[var(--ink-3)] mb-1">File upload requires Studio</div>
+                <Link href="/billing" className="text-xs text-[var(--blue)] font-semibold hover:underline">Upgrade to Studio</Link>
               </div>
-              <div className="text-sm font-semibold text-[var(--ink-2)] mb-0.5">
-                {parsing ? 'Reading files...' : 'Drop files here or click to upload'}
+            ) : (
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={onDrop}
+                onClick={() => fileInputRef.current?.click()}
+                className={`border-2 border-dashed rounded-xl px-6 py-7 mb-4 cursor-pointer transition text-center ${
+                  dragOver
+                    ? 'border-[var(--blue)] bg-[var(--blue-soft)]'
+                    : 'border-[var(--line)] hover:border-[var(--blue)] hover:bg-[var(--blue-tint)]'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".txt,.md,.docx,.pdf,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf"
+                  onChange={e => e.target.files && handleFiles(e.target.files)}
+                  className="hidden"
+                />
+                <div className="flex items-center justify-center mb-2">
+                  <div className="w-11 h-11 rounded-full bg-[var(--blue-soft)] text-[var(--blue-deep)] grid place-items-center">
+                    {parsing ? (
+                      <span className="dots"><span></span><span></span><span></span></span>
+                    ) : (
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                      </svg>
+                    )}
+                  </div>
+                </div>
+                <div className="text-sm font-semibold text-[var(--ink-2)] mb-0.5">
+                  {parsing ? 'Reading files...' : 'Drop files here or click to upload'}
+                </div>
+                <div className="text-xs text-[var(--ink-3)]">.txt, .md, .docx, .pdf · multiple files OK · stays in your browser</div>
               </div>
-              <div className="text-xs text-[var(--ink-3)]">.txt, .md, .docx, .pdf · multiple files OK · stays in your browser</div>
-            </div>
+            )}
 
             {/* Uploaded files list */}
             {uploadedFiles.length > 0 && (
@@ -2636,9 +2653,12 @@ function buildTableOfContents(d: ProjectData): string {
   return d.chapters.map((ch, i) => `${i + 1}. ${ch.title || `Chapter ${i + 1}`}`).join('\n');
 }
 
-function LaunchStage({ data, updateData, toast }: any) {
+function LaunchStage({ data, updateData, toast, plan }: any) {
   const hasAnyContent = data.chapters.some((ch: Chapter) => ch.scenes.some((sc: Scene) => sc.body.trim().length > 0));
   const activeSubId = data.launchSubsection || 'frontmatter';
+  const PACK_TABS = ['backmatter', 'description', 'backcover', 'metadata'];
+  const isPackLocked = (id: string) => PACK_TABS.includes(id) && plan === 'free';
+  const isExportLocked = (id: string) => id === 'export' && plan !== 'studio';
 
   function setSub(id: string) {
     updateData((d: ProjectData) => ({ ...d, launchSubsection: id }));
@@ -2675,30 +2695,34 @@ function LaunchStage({ data, updateData, toast }: any) {
     <div className="h-full flex flex-col overflow-hidden">
       <div className="border-b border-[var(--line)] bg-white px-6 flex-shrink-0 overflow-x-auto">
         <div className="max-w-[1280px] mx-auto flex gap-1">
-          {LAUNCH_SUB_TABS.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setSub(t.id)}
-              className={`relative px-4 py-3 text-sm font-medium whitespace-nowrap transition ${
-                activeSubId === t.id ? 'text-[var(--blue-deep)]' : 'text-[var(--ink-3)] hover:text-[var(--ink)]'
-              }`}
-            >
-              {t.label}
-              {activeSubId === t.id && (
-                <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-[var(--blue)] rounded-t" />
-              )}
-            </button>
-          ))}
+          {LAUNCH_SUB_TABS.map(t => {
+            const locked = isPackLocked(t.id) || isExportLocked(t.id);
+            return (
+              <button
+                key={t.id}
+                onClick={() => setSub(t.id)}
+                className={`relative px-4 py-3 text-sm font-medium whitespace-nowrap transition flex items-center gap-1.5 ${
+                  activeSubId === t.id ? 'text-[var(--blue-deep)]' : locked ? 'text-[var(--ink-4)]' : 'text-[var(--ink-3)] hover:text-[var(--ink)]'
+                }`}
+              >
+                {locked && <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3 flex-shrink-0"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>}
+                {t.label}
+                {activeSubId === t.id && (
+                  <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-[var(--blue)] rounded-t" />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {activeSubId === 'frontmatter' && <FrontMatterTab data={data} updateData={updateData} toast={toast} />}
-        {activeSubId === 'backmatter' && <BackMatterTab data={data} updateData={updateData} toast={toast} />}
-        {activeSubId === 'description' && <KDPDescriptionTab data={data} updateData={updateData} toast={toast} />}
-        {activeSubId === 'backcover' && <BackCoverTab data={data} updateData={updateData} toast={toast} />}
-        {activeSubId === 'metadata' && <MetadataPackTab data={data} updateData={updateData} toast={toast} />}
-        {activeSubId === 'export' && <ExportAllTab data={data} toast={toast} />}
+        {activeSubId === 'backmatter' && (isPackLocked('backmatter') ? <UpgradeGate feature="Back Matter Generator" required="pro" /> : <BackMatterTab data={data} updateData={updateData} toast={toast} />)}
+        {activeSubId === 'description' && (isPackLocked('description') ? <UpgradeGate feature="KDP Description Generator" required="pro" /> : <KDPDescriptionTab data={data} updateData={updateData} toast={toast} />)}
+        {activeSubId === 'backcover' && (isPackLocked('backcover') ? <UpgradeGate feature="Back Cover Copy" required="pro" /> : <BackCoverTab data={data} updateData={updateData} toast={toast} />)}
+        {activeSubId === 'metadata' && (isPackLocked('metadata') ? <UpgradeGate feature="Metadata Pack" required="pro" /> : <MetadataPackTab data={data} updateData={updateData} toast={toast} />)}
+        {activeSubId === 'export' && (isExportLocked('export') ? <UpgradeGate feature="Export All Zip" required="studio" /> : <ExportAllTab data={data} toast={toast} />)}
         {activeSubId === 'kdpupload' && <KDPChecklistTab data={data} toast={toast} />}
       </div>
     </div>
