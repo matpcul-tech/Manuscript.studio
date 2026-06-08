@@ -3677,7 +3677,7 @@ function KDPChecklistTab({ data, toast }: any) {
           <p className="text-sm text-[var(--ink-3)] mt-1">Tap Copy, switch to KDP, paste. Check off as you go.</p>
         </div>
         <a
-          href="https://kdp.amazon.com/title-setup/kindle/new"
+          href="https://kdp.amazon.com/en_US/bookshelf"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-sm font-semibold transition shadow-sm flex-shrink-0"
