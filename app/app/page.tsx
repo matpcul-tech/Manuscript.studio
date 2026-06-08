@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { InstallButton } from '@/components/InstallButton';
 
 type Project = {
   id: string;
@@ -78,10 +79,13 @@ function DashboardContent() {
   return (
     <main className="min-h-screen bg-[var(--bg-2)]">
       <nav className="h-16 bg-white border-b border-[var(--line)] flex items-center px-6">
-        <Link href="/app" className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[var(--blue)] to-[var(--blue-deep)] grid place-items-center text-white font-display font-bold text-[19px]">M</div>
-          <span className="font-bold text-[16px] tracking-tight">Manuscript Studio</span>
-        </Link>
+        <div className="flex items-center gap-2">
+          <InstallButton />
+          <Link href="/app" className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[var(--blue)] to-[var(--blue-deep)] grid place-items-center text-white font-display font-bold text-[19px]">M</div>
+            <span className="font-bold text-[16px] tracking-tight">Manuscript Studio</span>
+          </Link>
+        </div>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-sm text-[var(--ink-3)] hidden sm:block">{userEmail}</span>
           <Link href="/billing" className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)] px-3 py-2 rounded-lg hover:bg-[var(--bg-3)]">Billing</Link>
