@@ -1,5 +1,4 @@
 import Link from 'next/link';
-import { InstallButton } from '@/components/InstallButton';
 
 // SVG icon primitives -- all 24x24 viewBox, stroke-based
 function IconPencil() {
@@ -143,13 +142,10 @@ export default function LandingPage() {
       {/* NAV */}
       <nav className="sticky top-0 z-50 bg-white/80 backdrop-blur border-b border-[var(--line)]">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <InstallButton />
-            <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[var(--blue)] to-[var(--blue-deep)] grid place-items-center text-white font-display font-bold text-[19px] shadow-[0_2px_8px_rgba(79,109,245,0.4)]">M</div>
-              <span className="font-bold text-[16px] tracking-tight">Manuscript Studio</span>
-            </Link>
-          </div>
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[var(--blue)] to-[var(--blue-deep)] grid place-items-center text-white font-display font-bold text-[19px] shadow-[0_2px_8px_rgba(79,109,245,0.4)]">M</div>
+            <span className="font-bold text-[16px] tracking-tight">Manuscript Studio</span>
+          </Link>
           <div className="flex items-center gap-1">
             <a href="#features" className="hidden md:block px-3 py-2 text-sm font-medium text-[var(--ink-3)] hover:text-[var(--ink)] rounded-lg hover:bg-[var(--bg-3)] transition">Features</a>
             <a href="#how-it-works" className="hidden md:block px-3 py-2 text-sm font-medium text-[var(--ink-3)] hover:text-[var(--ink)] rounded-lg hover:bg-[var(--bg-3)] transition">How it works</a>
