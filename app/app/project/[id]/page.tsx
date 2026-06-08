@@ -835,7 +835,17 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   const [quickProgress, setQuickProgress] = useState({ done: 0, total: 0 });
   const [quickDraftMode, setQuickDraftMode] = useState<'opening' | 'all'>('all');
   const [quickJobId, setQuickJobId] = useState<string | null>(null);
+  const [quickElapsed, setQuickElapsed] = useState(0);
+  const [quickJobStartedAt, setQuickJobStartedAt] = useState<number | null>(null);
   const cancelRef = useRef(false);
+
+  useEffect(() => {
+    if (!quickBusy || !quickJobStartedAt) { setQuickElapsed(0); return; }
+    const update = () => setQuickElapsed(Math.floor((Date.now() - quickJobStartedAt) / 1000));
+    update();
+    const t = setInterval(update, 1000);
+    return () => clearInterval(t);
+  }, [quickBusy, quickJobStartedAt]);
 
   async function generateQuickDraft() {
     if (!data.quickPrompt.trim() || data.quickPrompt.trim().length < 20) {
@@ -846,6 +856,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     setQuickBusy(quickDraftMode === 'all' ? 'all' : 'opening');
     setQuickStatus('Starting...');
     setQuickProgress({ done: 0, total: 0 });
+    setQuickJobStartedAt(Date.now());
 
     try {
       const res = await fetch('/api/generate/quick-draft', {
@@ -882,6 +893,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     setQuickBusy('');
     setQuickStatus('');
     setQuickProgress({ done: 0, total: 0 });
+    setQuickJobStartedAt(null);
     toast('Stopped watching. Your draft is still generating in the background.', 'success');
   }
 
@@ -915,6 +927,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     setQuickBusy('');
     setQuickStatus('');
     setQuickProgress({ done: 0, total: 0 });
+    setQuickJobStartedAt(null);
   }
 
   // Pending completed Quick Draft jobs that the user has not yet imported into
@@ -929,6 +942,28 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     let cancelled = false;
     (async () => {
       const supabase = createClient();
+
+      // Reattach listener to any job that is still running.
+      const { data: activeRows } = await supabase
+        .from('generation_jobs')
+        .select('id, status, chapters_written, total_chapters, started_at')
+        .eq('project_id', projectId)
+        .eq('job_type', 'quick_draft')
+        .in('status', ['queued', 'running', 'streaming'])
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (cancelled) return;
+      if (activeRows && activeRows.length > 0) {
+        const job = activeRows[0];
+        setQuickJobId(job.id);
+        setQuickBusy('all');
+        setQuickStatus('Reconnecting...');
+        setQuickProgress({ done: job.chapters_written || 0, total: job.total_chapters || 0 });
+        if (job.started_at) setQuickJobStartedAt(new Date(job.started_at).getTime());
+        return;
+      }
+
+      // Find completed jobs not yet applied to this project.
       const { data: rows } = await supabase
         .from('generation_jobs')
         .select('id, status, result_text, created_at')
@@ -948,9 +983,16 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
           try { chapterCount = (JSON.parse(j.result_text).chapterTexts || []).length; } catch {}
           return { id: j.id, result_text: j.result_text, created_at: j.created_at, chapter_count: chapterCount };
         });
-      setPendingJobs(pending);
+      if (pending.length === 0) return;
+      // Auto-load into the editor when the project is still empty; otherwise surface the import banner.
+      if (isFreshProject) {
+        importPendingJob(pending[0]);
+      } else {
+        setPendingJobs(pending);
+      }
     })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId, quickJobId]);
 
   function importPendingJob(job: { id: string; result_text: string }) {
@@ -1009,10 +1051,36 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   const isFreshProject = data.chapters.length === 1 && data.chapters[0].scenes.length === 1 && !hasAnyContent;
   const showQuickDraft = data.writeMode === 'quick' && isFreshProject;
 
+  function fmtElapsed(secs: number): string {
+    if (secs < 60) return `${secs}s`;
+    return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+  }
+
+  // Defined once; rendered in both the Quick Draft panel and the main editor view.
+  const generationStreamNode = quickJobId ? (
+    <GenerationStream
+      jobId={quickJobId}
+      onStatus={s => {
+        setQuickStatus(s.message);
+        setQuickProgress({ done: s.chaptersComplete, total: s.totalChapters });
+      }}
+      onComplete={({ outline, chapterTexts }) => handleQuickDraftComplete(outline, chapterTexts)}
+      onError={msg => {
+        toast(msg, 'error');
+        setQuickJobId(null);
+        setQuickBusy('');
+        setQuickStatus('');
+        setQuickProgress({ done: 0, total: 0 });
+        setQuickJobStartedAt(null);
+      }}
+    />
+  ) : null;
+
   if (showQuickDraft) {
     return (
       <div className="h-full flex flex-col overflow-hidden">
         {pendingBanner}
+        {generationStreamNode}
         <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-6 py-12">
           {/* mode toggle */}
@@ -1043,7 +1111,10 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
               <div className="font-display text-xl font-semibold mb-1">{quickStatus}</div>
               {quickProgress.total > 1 ? (
                 <>
-                  <div className="text-sm text-[var(--ink-3)] mb-4">{quickProgress.done} of {quickProgress.total} chapters drafted</div>
+                  <div className="text-sm text-[var(--ink-3)] mb-4">
+                    Chapter {quickProgress.done + 1} of {quickProgress.total}
+                    {quickElapsed > 0 && <span className="text-[var(--ink-4)]"> · {fmtElapsed(quickElapsed)}</span>}
+                  </div>
                   <div className="w-full max-w-sm mx-auto h-2 bg-[var(--bg-3)] rounded-full overflow-hidden mb-5">
                     <div
                       className="h-full bg-gradient-to-r from-[var(--blue)] to-[var(--blue-deep)] transition-all"
@@ -1052,7 +1123,10 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
                   </div>
                 </>
               ) : (
-                <div className="text-sm text-[var(--ink-3)] mb-5">This takes about 30 to 60 seconds.</div>
+                <div className="text-sm text-[var(--ink-3)] mb-5">
+                  This takes about 30 to 60 seconds.
+                  {quickElapsed > 0 && <span className="text-[var(--ink-4)]"> · {fmtElapsed(quickElapsed)}</span>}
+                </div>
               )}
               <button
                 onClick={cancelQuickDraft}
@@ -1297,23 +1371,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
 
       {draftModal && <DraftModal data={data} onClose={() => setDraftModal(false)} onSubmit={draftScene} busy={busy} />}
       {rewriteModal && <RewriteModal editorRef={editorRef} onClose={() => setRewriteModal(false)} onSubmit={rewriteSelection} busy={busy} />}
-      {quickJobId && (
-        <GenerationStream
-          jobId={quickJobId}
-          onStatus={s => {
-            setQuickStatus(s.message);
-            setQuickProgress({ done: s.chaptersComplete, total: s.totalChapters });
-          }}
-          onComplete={({ outline, chapterTexts }) => handleQuickDraftComplete(outline, chapterTexts)}
-          onError={msg => {
-            toast(msg, 'error');
-            setQuickJobId(null);
-            setQuickBusy('');
-            setQuickStatus('');
-            setQuickProgress({ done: 0, total: 0 });
-          }}
-        />
-      )}
+      {generationStreamNode}
       </div>
     </div>
   );

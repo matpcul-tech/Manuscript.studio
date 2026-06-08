@@ -119,7 +119,7 @@ export const generateQuickDraft = inngest.createFunction(
     await step.run('mark-running', async () => {
       await supabase
         .from('generation_jobs')
-        .update({ status: 'running', started_at: new Date().toISOString() })
+        .update({ status: 'running', started_at: new Date().toISOString(), total_chapters: chapterCount, chapters_written: 0 })
         .eq('id', jobId);
       await broadcastEvent(jobId, 'status', {
         phase: 'outline',
@@ -199,7 +199,7 @@ Rules:
       const chapterText = await step.run(`chapter-${i}`, async () => {
         await supabase
           .from('generation_jobs')
-          .update({ status: 'streaming' })
+          .update({ status: 'streaming', chapters_written: i, total_chapters: chaptersToWrite })
           .eq('id', jobId);
         await broadcastEvent(jobId, 'status', {
           phase: 'chapter',

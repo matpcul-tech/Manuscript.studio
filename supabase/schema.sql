@@ -169,6 +169,8 @@ create table if not exists generation_jobs (
   error_message text,
   tokens_used integer,
   model_used text,
+  chapters_written integer not null default 0,
+  total_chapters integer not null default 0,
   started_at timestamp with time zone,
   completed_at timestamp with time zone,
   created_at timestamp with time zone default now()

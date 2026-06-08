@@ -70,7 +70,7 @@ export function GenerationStream({
       if (cancelled || completedRef.current) return;
       const { data } = await supabase
         .from('generation_jobs')
-        .select('status, result_text, error_message')
+        .select('status, result_text, error_message, chapters_written, total_chapters')
         .eq('id', jobId)
         .single();
       if (cancelled || !data) return;
@@ -83,6 +83,17 @@ export function GenerationStream({
         }
       } else if (data.status === 'failed') {
         finishWithError(data.error_message || 'Generation failed.');
+      } else if (data.status === 'running' || data.status === 'streaming') {
+        const done = data.chapters_written ?? 0;
+        const total = data.total_chapters ?? 0;
+        onStatus?.({
+          phase: 'chapter',
+          chaptersComplete: done,
+          totalChapters: total,
+          message: total > 0
+            ? `Writing chapter ${done + 1} of ${total}...`
+            : 'Generating...',
+        });
       }
     };
 
