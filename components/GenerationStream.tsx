@@ -94,6 +94,13 @@ export function GenerationStream({
             ? `Writing chapter ${done + 1} of ${total}...`
             : 'Generating...',
         });
+      } else if (data.status === 'queued') {
+        onStatus?.({
+          phase: 'connecting',
+          chaptersComplete: 0,
+          totalChapters: 0,
+          message: 'Waiting to start...',
+        });
       }
     };
 

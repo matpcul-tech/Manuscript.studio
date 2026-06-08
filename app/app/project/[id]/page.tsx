@@ -111,6 +111,57 @@ export default function ProjectPage() {
     setTimeout(() => setToastMsg(null), 3000);
   }
 
+  // Background generation awareness: polls the DB every 8s while the user is
+  // on a stage other than Write, so navigation away does not lose track of a
+  // running job. The Write stage handles its own subscription via GenerationStream.
+  const [bgJob, setBgJob] = useState<{ status: 'running' | 'complete'; chapterCount?: number } | null>(null);
+
+  useEffect(() => {
+    if (!loaded || !id || data.currentStage === 'write') {
+      setBgJob(null);
+      return;
+    }
+    let cancelled = false;
+    const check = async () => {
+      if (cancelled) return;
+      const supabase = createClient();
+      const { data: active } = await supabase
+        .from('generation_jobs')
+        .select('id')
+        .eq('project_id', id)
+        .eq('job_type', 'quick_draft')
+        .in('status', ['queued', 'running', 'streaming'])
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (active) { setBgJob({ status: 'running' }); return; }
+      const { data: rows } = await supabase
+        .from('generation_jobs')
+        .select('id, result_text')
+        .eq('project_id', id)
+        .eq('job_type', 'quick_draft')
+        .eq('status', 'complete')
+        .order('created_at', { ascending: false })
+        .limit(5);
+      if (cancelled || !rows) return;
+      const appliedKey = `manuscript:applied-jobs:${id}`;
+      let applied: string[] = [];
+      try { applied = JSON.parse(localStorage.getItem(appliedKey) || '[]'); } catch {}
+      const ready = rows.find((j: any) => !applied.includes(j.id) && j.result_text);
+      if (ready) {
+        let chapterCount = 0;
+        try { chapterCount = JSON.parse(ready.result_text).chapterTexts?.length || 0; } catch {}
+        setBgJob({ status: 'complete', chapterCount });
+      } else {
+        setBgJob(null);
+      }
+    };
+    check();
+    const timer = setInterval(check, 8000);
+    return () => { cancelled = true; clearInterval(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, id, data.currentStage]);
+
   function totalWords(d: ProjectData = data): number {
     let n = 0;
     d.chapters.forEach(ch => ch.scenes.forEach(sc => n += countWords(sc.body)));
@@ -191,6 +242,46 @@ export default function ProjectPage() {
           </span>
         </div>
       </header>
+
+      {/* Background generation banner -- shown on all stages except Write */}
+      {bgJob && data.currentStage !== 'write' && (
+        <div className="bg-[var(--blue-soft)] border-b border-[var(--blue)]/20 px-6 py-2.5 flex-shrink-0 flex items-center justify-between gap-4">
+          {bgJob.status === 'running' ? (
+            <>
+              <div className="flex items-center gap-2 text-sm text-[var(--blue-deep)]">
+                <span className="w-2 h-2 rounded-full bg-[var(--blue)] animate-pulse flex-shrink-0" />
+                Generating your manuscript in the background...
+              </div>
+              <button
+                onClick={() => setStage('write')}
+                className="text-xs font-semibold text-[var(--blue-deep)] hover:underline flex-shrink-0"
+              >
+                View progress
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="text-sm font-semibold text-[var(--blue-deep)]">
+                Your {bgJob.chapterCount ? `${bgJob.chapterCount}-chapter ` : ''}draft is ready.
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <button
+                  onClick={() => { setBgJob(null); setStage('write'); }}
+                  className="px-3 py-1 rounded-md bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-xs font-semibold shadow-sm"
+                >
+                  Open in Write
+                </button>
+                <button
+                  onClick={() => setBgJob(null)}
+                  className="text-xs text-[var(--ink-3)] hover:text-[var(--ink)] font-medium"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {/* STAGES */}
       <div className="flex-1 overflow-hidden">
@@ -1123,16 +1214,23 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
                   </div>
                 </>
               ) : (
-                <div className="text-sm text-[var(--ink-3)] mb-5">
-                  This takes about 30 to 60 seconds.
+                <div className="text-sm text-[var(--ink-3)] mb-3">
+                  {quickBusy === 'all'
+                    ? 'Full manuscripts take 3 to 10 minutes.'
+                    : 'This takes about 30 to 60 seconds.'}
                   {quickElapsed > 0 && <span className="text-[var(--ink-4)]"> · {fmtElapsed(quickElapsed)}</span>}
                 </div>
+              )}
+              {quickBusy === 'all' && quickProgress.total === 0 && (
+                <p className="text-xs text-[var(--ink-3)] mb-5">
+                  You can use Setup or Voice while this runs. We will notify you when it is ready.
+                </p>
               )}
               <button
                 onClick={cancelQuickDraft}
                 className="text-xs text-[var(--ink-3)] hover:text-[var(--red)] font-medium"
               >
-                {cancelRef.current ? 'Cancelling...' : 'Cancel and keep what is drafted so far'}
+                {cancelRef.current ? 'Cancelling...' : 'Stop watching (generation keeps running in the background)'}
               </button>
             </div>
           ) : (
