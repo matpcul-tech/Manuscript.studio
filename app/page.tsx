@@ -165,10 +165,6 @@ export default function LandingPage() {
 
         <div className="max-w-6xl mx-auto px-6 pt-24 pb-20 relative">
           <div className="text-center max-w-3xl mx-auto">
-            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-[var(--blue-soft)] text-[var(--blue-deep)] text-xs font-semibold mb-6 border border-[var(--blue)]/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-[var(--blue)] animate-pulse" />
-              Now in early access
-            </div>
             <h1 className="font-display text-[clamp(38px,6.5vw,68px)] leading-[1.04] font-bold tracking-tight mb-6 text-[var(--ink)]">
               Write your book<br />
               <span className="text-[var(--blue-deep)]">in your voice.</span>
@@ -190,7 +186,7 @@ export default function LandingPage() {
               <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
               <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
               <div className="w-3 h-3 rounded-full bg-[#28ca42]" />
-              <div className="ml-4 text-xs text-[var(--ink-4)] font-mono">manuscript-studio-os.vercel.app</div>
+              <div className="ml-4 text-xs text-[var(--ink-4)] font-mono">manuscript-studio-os.com</div>
             </div>
             <div className="grid grid-cols-12 min-h-[380px]">
               <div className="col-span-3 bg-[var(--bg-2)] border-r border-[var(--line)] p-4">
