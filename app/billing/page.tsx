@@ -43,16 +43,26 @@ export default function BillingPage() {
 
   useEffect(() => {
     async function load() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/login'); return; }
-      const { data } = await supabase
-        .from('subscriptions')
-        .select('plan, status, current_period_end')
-        .eq('user_id', user.id)
-        .single();
-      setSub(data ?? { plan: 'free', status: 'free', current_period_end: null });
-      setLoading(false);
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) { router.push('/login'); return; }
+        const { data, error } = await supabase
+          .from('subscriptions')
+          .select('plan, status, current_period_end')
+          .eq('user_id', user.id)
+          .single();
+        // PGRST116 = no row found, expected for new users -- silently default to free
+        if (error && error.code !== 'PGRST116') {
+          console.error('Subscription fetch error:', error);
+        }
+        setSub(data ?? { plan: 'free', status: 'free', current_period_end: null });
+      } catch (e) {
+        console.error('Billing load error:', e);
+        setSub({ plan: 'free', status: 'free', current_period_end: null });
+      } finally {
+        setLoading(false);
+      }
     }
     load();
   }, [router]);

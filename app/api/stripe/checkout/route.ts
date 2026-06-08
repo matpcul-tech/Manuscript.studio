@@ -27,27 +27,35 @@ export async function POST(req: NextRequest) {
     .single();
 
   let customerId = sub?.stripe_customer_id;
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: user.email,
-      metadata: { userId: user.id },
+  try {
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email,
+        metadata: { userId: user.id },
+      });
+      customerId = customer.id;
+      const { error: upsertError } = await admin
+        .from('subscriptions')
+        .upsert(
+          { user_id: user.id, stripe_customer_id: customerId },
+          { onConflict: 'user_id' }
+        );
+      if (upsertError) console.error('Failed to save stripe_customer_id:', upsertError);
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      customer: customerId,
+      payment_method_types: ['card'],
+      line_items: [{ price: priceId, quantity: 1 }],
+      mode: 'subscription',
+      success_url: `${req.nextUrl.origin}/app?upgraded=true`,
+      cancel_url: `${req.nextUrl.origin}/billing`,
+      metadata: { userId: user.id, tier },
     });
-    customerId = customer.id;
-    await admin
-      .from('subscriptions')
-      .update({ stripe_customer_id: customerId })
-      .eq('user_id', user.id);
+
+    return NextResponse.json({ url: session.url });
+  } catch (err: any) {
+    console.error('Stripe checkout error:', { message: err.message, type: err.type, code: err.code, raw: err });
+    return NextResponse.json({ error: err.message || 'Stripe checkout failed' }, { status: 500 });
   }
-
-  const session = await stripe.checkout.sessions.create({
-    customer: customerId,
-    payment_method_types: ['card'],
-    line_items: [{ price: priceId, quantity: 1 }],
-    mode: 'subscription',
-    success_url: `${req.nextUrl.origin}/app?upgraded=true`,
-    cancel_url: `${req.nextUrl.origin}/billing`,
-    metadata: { userId: user.id, tier },
-  });
-
-  return NextResponse.json({ url: session.url });
 }
