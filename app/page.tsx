@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { InstallButton } from '@/components/InstallButton';
 
 // SVG icon primitives -- all 24x24 viewBox, stroke-based
 function IconPencil() {
@@ -147,6 +148,7 @@ export default function LandingPage() {
             <a href="#features" className="hidden md:block px-3 py-2 text-sm font-medium text-[var(--ink-3)] hover:text-[var(--ink)] rounded-lg hover:bg-[var(--bg-3)] transition">Features</a>
             <a href="#how-it-works" className="hidden md:block px-3 py-2 text-sm font-medium text-[var(--ink-3)] hover:text-[var(--ink)] rounded-lg hover:bg-[var(--bg-3)] transition">How it works</a>
             <a href="#pricing" className="hidden md:block px-3 py-2 text-sm font-medium text-[var(--ink-3)] hover:text-[var(--ink)] rounded-lg hover:bg-[var(--bg-3)] transition">Pricing</a>
+            <InstallButton />
             <Link href="/login" className="ml-3 px-4 py-2 text-sm font-semibold text-[var(--ink-2)] hover:text-[var(--ink)] transition">Sign In</Link>
             <Link href="/login" className="ml-1 px-4 py-2 text-sm font-semibold rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white shadow-sm transition">Start Free</Link>
           </div>
