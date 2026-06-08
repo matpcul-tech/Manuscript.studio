@@ -113,6 +113,7 @@ const PLANS = [
     items: ['1 project', '1 voice profile', '30 engine calls per day', 'Export .docx and .txt', 'No credit card required'],
     cta: 'Start free',
     primary: false,
+    href: '/login',
   },
   {
     name: 'Pro',
@@ -122,6 +123,7 @@ const PLANS = [
     cta: 'Go Pro',
     primary: true,
     badge: 'Most popular',
+    href: '/billing',
   },
   {
     name: 'Studio',
@@ -130,6 +132,7 @@ const PLANS = [
     items: ['Everything in Pro', '2,000 engine calls per day', 'Whole-manuscript line edit', 'AI cover backgrounds (coming)', 'Spine + back cover for paperback', 'Priority support'],
     cta: 'Go Studio',
     primary: false,
+    href: '/billing',
   },
 ];
 
@@ -299,7 +302,7 @@ export default function LandingPage() {
                   ))}
                 </ul>
                 <Link
-                  href="/login"
+                  href={plan.href}
                   className={`block w-full text-center py-3 rounded-lg font-semibold transition ${plan.primary ? 'bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white shadow-[0_4px_14px_rgba(79,109,245,0.4)]' : 'bg-white border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)]'}`}
                 >
                   {plan.cta}
