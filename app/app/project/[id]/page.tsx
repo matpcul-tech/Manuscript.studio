@@ -1049,7 +1049,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   // Determine if Quick Draft entry should show
   const hasAnyContent = data.chapters.some((ch: Chapter) => ch.scenes.some((sc: Scene) => sc.body.trim().length > 0));
   const isFreshProject = data.chapters.length === 1 && data.chapters[0].scenes.length === 1 && !hasAnyContent;
-  const showQuickDraft = data.writeMode === 'quick' && isFreshProject;
+  const showQuickDraft = data.writeMode === 'quick' && !hasAnyContent;
 
   function fmtElapsed(secs: number): string {
     if (secs < 60) return `${secs}s`;
