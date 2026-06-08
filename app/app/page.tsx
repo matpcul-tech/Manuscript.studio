@@ -19,6 +19,7 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [userEmail, setUserEmail] = useState('');
+  const [plan, setPlan] = useState<'free' | 'pro' | 'studio'>('free');
   const upgraded = searchParams.get('upgraded') === 'true';
 
   useEffect(() => {
@@ -29,7 +30,14 @@ function DashboardContent() {
   async function loadUser() {
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (user) setUserEmail(user.email || '');
+    if (!user) return;
+    setUserEmail(user.email || '');
+    const { data: sub } = await supabase
+      .from('subscriptions')
+      .select('plan')
+      .eq('user_id', user.id)
+      .single();
+    setPlan((sub?.plan as any) || 'free');
   }
 
   async function loadProjects() {
@@ -101,22 +109,31 @@ function DashboardContent() {
             <h1 className="font-display text-3xl font-bold mb-1">Your projects</h1>
             <p className="text-[var(--ink-3)]">Pick up where you left off, or start something new.</p>
           </div>
-          <button
-            onClick={createProject}
-            disabled={creating}
-            className="px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold shadow-sm transition flex items-center gap-2 disabled:opacity-60"
-          >
-            {creating ? (
-              <span>Creating<span className="dots"><span></span><span></span><span></span></span></span>
-            ) : (
-              <>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
-                New project
-              </>
-            )}
-          </button>
+          {plan === 'free' && projects.length >= 1 ? (
+            <Link
+              href="/billing"
+              className="px-5 py-2.5 rounded-lg bg-[var(--amber,#F59E0B)] hover:opacity-90 text-white font-semibold shadow-sm transition flex items-center gap-2 text-sm"
+            >
+              Upgrade for more projects
+            </Link>
+          ) : (
+            <button
+              onClick={createProject}
+              disabled={creating}
+              className="px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold shadow-sm transition flex items-center gap-2 disabled:opacity-60"
+            >
+              {creating ? (
+                <span>Creating<span className="dots"><span></span><span></span><span></span></span></span>
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-4 h-4">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                  New project
+                </>
+              )}
+            </button>
+          )}
         </div>
 
         {loading ? (

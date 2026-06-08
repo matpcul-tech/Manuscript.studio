@@ -61,11 +61,21 @@ export default function ProjectPage() {
   const [loaded, setLoaded] = useState(false);
   const [saveState, setSaveState] = useState<'saved' | 'saving'>('saved');
   const [toastMsg, setToastMsg] = useState<{ text: string; kind?: string } | null>(null);
+  const [plan, setPlan] = useState<'free' | 'pro' | 'studio'>('free');
   const saveTimerRef = useRef<any>(null);
   const dataRef = useRef(data);
   dataRef.current = data;
 
   useEffect(() => { loadProject(); }, [id]);
+
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return;
+      supabase.from('subscriptions').select('plan').eq('user_id', user.id).single()
+        .then(({ data: sub }) => setPlan((sub?.plan as any) || 'free'));
+    });
+  }, []);
 
   async function loadProject() {
     try {
@@ -287,9 +297,9 @@ export default function ProjectPage() {
         {data.currentStage === 'setup' && <SetupStage data={data} updateData={updateData} onNext={() => setStage('voice')} toast={toast} />}
         {data.currentStage === 'voice' && <VoiceStage data={data} updateData={updateData} toast={toast} />}
         {data.currentStage === 'write' && <WriteStage data={data} updateData={updateData} toast={toast} projectId={id} />}
-        {data.currentStage === 'edit' && <EditStage data={data} updateData={updateData} toast={toast} activeScene={activeScene} />}
-        {data.currentStage === 'cover' && <CoverStage data={data} updateData={updateData} toast={toast} />}
-        {data.currentStage === 'publish' && <PublishStage data={data} updateData={updateData} toast={toast} />}
+        {data.currentStage === 'edit' && <EditStage data={data} updateData={updateData} toast={toast} activeScene={activeScene} plan={plan} />}
+        {data.currentStage === 'cover' && <CoverStage data={data} updateData={updateData} toast={toast} plan={plan} />}
+        {data.currentStage === 'publish' && <PublishStage data={data} updateData={updateData} toast={toast} plan={plan} />}
         {data.currentStage === 'launch' && <LaunchStage data={data} updateData={updateData} toast={toast} />}
       </div>
 
@@ -1475,7 +1485,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
 }
 
 /* ==================== EDIT STAGE ==================== */
-function EditStage({ data, updateData, toast, activeScene }: any) {
+function EditStage({ data, updateData, toast, activeScene, plan }: any) {
   const [scope, setScope] = useState('scene');
   const [scopeCh, setScopeCh] = useState(data.chapters[0]?.id || '');
   const [busy, setBusy] = useState('');
@@ -2088,17 +2098,31 @@ Rules:
             <div className={editCard}>
               <h4 className="font-display text-[17px] font-semibold mb-1">Line edit</h4>
               <p className="text-xs text-[var(--ink-3)] mb-3">Tighten sentences. Preserves voice.</p>
-              <button onClick={lineEdit} disabled={busy === 'line'} className={btnPrimaryFull}>
-                {busy === 'line' ? <>Editing<span className="dots"><span></span><span></span><span></span></span></> : 'Run line edit'}
-              </button>
+              {plan !== 'studio' ? (
+                <div className="flex items-center justify-between px-3 py-2.5 bg-[var(--bg-3)] rounded-lg">
+                  <span className="text-xs text-[var(--ink-3)]">Studio plan only</span>
+                  <Link href="/billing" className="text-xs text-[var(--blue)] font-semibold">Upgrade</Link>
+                </div>
+              ) : (
+                <button onClick={lineEdit} disabled={busy === 'line'} className={btnPrimaryFull}>
+                  {busy === 'line' ? <>Editing<span className="dots"><span></span><span></span><span></span></span></> : 'Run line edit'}
+                </button>
+              )}
             </div>
 
             <div className={editCard}>
               <h4 className="font-display text-[17px] font-semibold mb-1">Voice consistency</h4>
               <p className="text-xs text-[var(--ink-3)] mb-3">Find passages that drift from your trained voice. Apply rewrites with one click.</p>
-              <button onClick={checkConsistency} disabled={busy === 'cons'} className={btnGhostFull}>
-                {busy === 'cons' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : consistencyIssues ? 'Re-run check' : 'Check consistency'}
-              </button>
+              {plan === 'free' ? (
+                <div className="flex items-center justify-between px-3 py-2.5 bg-[var(--bg-3)] rounded-lg">
+                  <span className="text-xs text-[var(--ink-3)]">Pro plan required</span>
+                  <Link href="/billing" className="text-xs text-[var(--blue)] font-semibold">Upgrade</Link>
+                </div>
+              ) : (
+                <button onClick={checkConsistency} disabled={busy === 'cons'} className={btnGhostFull}>
+                  {busy === 'cons' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : consistencyIssues ? 'Re-run check' : 'Check consistency'}
+                </button>
+              )}
               {consistencyIssues && consistencyIssues.length > 0 && (
                 <div className="mt-3">
                   <div className="flex items-center justify-between mb-2.5">
@@ -2271,7 +2295,8 @@ Rules:
 }
 
 /* ==================== COVER STAGE ==================== */
-function CoverStage({ data, updateData, toast }: any) {
+function CoverStage({ data, updateData, toast, plan }: any) {
+  if (plan === 'free') return <UpgradeGate feature="Cover Designer" required="pro" />;
   function f<K extends keyof ProjectData>(key: K, val: ProjectData[K]) {
     updateData((d: ProjectData) => ({ ...d, [key]: val }));
   }
@@ -2429,7 +2454,7 @@ function CoverStage({ data, updateData, toast }: any) {
 }
 
 /* ==================== PUBLISH STAGE ==================== */
-function PublishStage({ data, updateData, toast }: any) {
+function PublishStage({ data, updateData, toast, plan }: any) {
   const [busy, setBusy] = useState('');
 
   const totalW = data.chapters.reduce((n: number, ch: Chapter) => n + ch.scenes.reduce((m: number, sc: Scene) => m + countWords(sc.body), 0), 0);
@@ -2515,9 +2540,16 @@ function PublishStage({ data, updateData, toast }: any) {
               <h4 className="font-display text-[19px] font-semibold mt-3 mb-1">{card.title}</h4>
               <div className="text-[11.5px] text-[var(--ink-4)] mb-3 px-2.5 py-2 bg-[var(--bg-2)] rounded-md font-serif">{card.meta}</div>
               <p className="text-[13px] text-[var(--ink-3)] leading-relaxed mb-4 flex-1">{card.body}</p>
-              <button onClick={() => doExport(card.id)} disabled={!!busy} className={card.id === 'bundle' ? btnGhostFull : btnPrimaryFull}>
-                {busy === card.id ? <>Building<span className="dots"><span></span><span></span><span></span></span></> : `Export ${card.id === 'bundle' ? 'bundle' : `.${card.id === 'docx' ? 'doc' : card.id}`}`}
-              </button>
+              {plan === 'free' && card.id !== 'docx' ? (
+                <div className="flex items-center justify-between px-3 py-2.5 bg-[var(--bg-3)] rounded-lg mt-auto">
+                  <span className="text-xs text-[var(--ink-3)]">Pro plan required</span>
+                  <Link href="/billing" className="text-xs text-[var(--blue)] font-semibold">Upgrade</Link>
+                </div>
+              ) : (
+                <button onClick={() => doExport(card.id)} disabled={!!busy} className={card.id === 'bundle' ? btnGhostFull : btnPrimaryFull}>
+                  {busy === card.id ? <>Building<span className="dots"><span></span><span></span><span></span></span></> : `Export ${card.id === 'bundle' ? 'bundle' : `.${card.id === 'docx' ? 'doc' : card.id}`}`}
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -3705,6 +3737,27 @@ function PackEmptyCard() {
 }
 
 /* ==================== SHARED UI ==================== */
+function UpgradeGate({ feature, required }: { feature: string; required: 'pro' | 'studio' }) {
+  return (
+    <div className="h-full flex items-center justify-center p-10">
+      <div className="max-w-sm text-center">
+        <div className="w-14 h-14 mx-auto rounded-2xl bg-[var(--blue-soft)] text-[var(--blue-deep)] grid place-items-center mb-5">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+          </svg>
+        </div>
+        <h3 className="font-display text-xl font-semibold mb-2">{feature}</h3>
+        <p className="text-[var(--ink-3)] text-sm mb-5 leading-relaxed">
+          This feature is included in the {required === 'pro' ? 'Pro' : 'Studio'} plan.
+        </p>
+        <Link href="/billing" className="inline-block px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-sm font-semibold transition">
+          Upgrade to {required === 'pro' ? 'Pro ($19/mo)' : 'Studio ($39/mo)'}
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function Section({ title, children }: any) {
   return (
     <div className="bg-white border border-[var(--line)] rounded-xl p-6 shadow-sm">
