@@ -200,46 +200,45 @@ export default function ProjectPage() {
   return (
     <main className="h-screen flex flex-col bg-[var(--bg-2)] overflow-hidden">
       {/* TOP BAR */}
-      <header className="h-[60px] bg-white border-b border-[var(--line)] flex items-center px-5 gap-3 z-30 flex-shrink-0">
-        <Link href="/app" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--blue)] to-[var(--blue-deep)] grid place-items-center text-white font-display font-bold text-[16px]">M</div>
-        </Link>
-        <div className="w-px h-7 bg-[var(--line)]" />
-        <input
-          value={projectName}
-          onChange={e => { setProjectName(e.target.value); markDirty(undefined, e.target.value); }}
-          className="text-sm font-medium text-[var(--ink-2)] bg-transparent border border-transparent hover:bg-[var(--bg-3)] focus:bg-white focus:border-[var(--blue)] px-2.5 py-1.5 rounded-md outline-none min-w-[220px] transition"
-        />
-
-        <div className="flex-1" />
-
-        <div className="flex gap-1 bg-[var(--bg-3)] p-1 rounded-[10px]">
-          {STAGES.map((s, i) => (
-            <button
-              key={s.id}
-              onClick={() => setStage(s.id)}
-              className={`px-3.5 py-1.5 rounded-[7px] text-[13px] font-medium transition flex items-center gap-1.5 ${
-                data.currentStage === s.id
-                  ? 'bg-white text-[var(--blue-deep)] shadow-sm'
-                  : 'text-[var(--ink-3)] hover:text-[var(--ink)]'
-              }`}
-            >
-              <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold grid place-items-center ${
-                data.currentStage === s.id ? 'bg-[var(--blue)] text-white' : 'bg-[var(--ink-5)] text-white'
-              }`}>{i + 1}</span>
-              {s.label}
-            </button>
-          ))}
+      <header className="bg-white border-b border-[var(--line)] z-30 flex-shrink-0">
+        <div className="h-[56px] flex items-center px-4 gap-3">
+          <Link href="/app" className="flex items-center gap-2 flex-shrink-0">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[var(--blue)] to-[var(--blue-deep)] grid place-items-center text-white font-display font-bold text-[16px]">M</div>
+          </Link>
+          <div className="w-px h-7 bg-[var(--line)] flex-shrink-0" />
+          <input
+            value={projectName}
+            onChange={e => { setProjectName(e.target.value); markDirty(undefined, e.target.value); }}
+            className="text-sm font-medium text-[var(--ink-2)] bg-transparent border border-transparent hover:bg-[var(--bg-3)] focus:bg-white focus:border-[var(--blue)] px-2.5 py-1.5 rounded-md outline-none min-w-0 w-full transition"
+          />
+          <div className="flex items-center gap-2 text-xs text-[var(--ink-3)] flex-shrink-0 ml-auto">
+            <span className="hidden sm:inline"><b className="text-[var(--ink-2)]">{totalWords().toLocaleString()}</b> words</span>
+            <span className="flex items-center gap-1.5">
+              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${saveState === 'saving' ? 'bg-[var(--amber)]' : 'bg-[var(--green)]'}`} />
+              <span className="hidden sm:inline">{saveState}</span>
+            </span>
+          </div>
         </div>
-
-        <div className="flex-1" />
-
-        <div className="flex items-center gap-3 text-xs text-[var(--ink-3)]">
-          <span><b className="text-[var(--ink-2)]">{totalWords().toLocaleString()}</b> words</span>
-          <span className="flex items-center gap-1.5">
-            <span className={`w-1.5 h-1.5 rounded-full ${saveState === 'saving' ? 'bg-[var(--amber)]' : 'bg-[var(--green)]'}`} />
-            {saveState}
-          </span>
+        {/* Stage tabs -- scrollable on mobile */}
+        <div className="overflow-x-auto border-t border-[var(--line)] bg-[var(--bg-3)] scrollbar-hide">
+          <div className="flex gap-0.5 p-1 min-w-max">
+            {STAGES.map((s, i) => (
+              <button
+                key={s.id}
+                onClick={() => setStage(s.id)}
+                className={`px-3.5 py-1.5 rounded-[7px] text-[13px] font-medium transition flex items-center gap-1.5 whitespace-nowrap ${
+                  data.currentStage === s.id
+                    ? 'bg-white text-[var(--blue-deep)] shadow-sm'
+                    : 'text-[var(--ink-3)] hover:text-[var(--ink)]'
+                }`}
+              >
+                <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold grid place-items-center flex-shrink-0 ${
+                  data.currentStage === s.id ? 'bg-[var(--blue)] text-white' : 'bg-[var(--ink-5)] text-white'
+                }`}>{i + 1}</span>
+                {s.label}
+              </button>
+            ))}
+          </div>
         </div>
       </header>
 
