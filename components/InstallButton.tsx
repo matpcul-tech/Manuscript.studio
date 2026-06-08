@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-type Platform = 'ios' | 'other' | null;
+type Platform = 'ios' | 'android' | null;
 
 export function InstallButton() {
   const [prompt, setPrompt] = useState<any>(null);
@@ -11,8 +11,10 @@ export function InstallButton() {
   useEffect(() => {
     if (window.matchMedia('(display-mode: standalone)').matches) return;
 
-    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !(window as any).MSStream;
-    setPlatform(ios ? 'ios' : 'other');
+    const ua = navigator.userAgent;
+    const ios = /iphone|ipad|ipod/i.test(ua) && !(window as any).MSStream;
+    const android = /android/i.test(ua);
+    setPlatform(ios ? 'ios' : android ? 'android' : null);
 
     const handler = (e: Event) => { e.preventDefault(); setPrompt(e); };
     window.addEventListener('beforeinstallprompt', handler);
@@ -21,7 +23,7 @@ export function InstallButton() {
 
   if (platform === 'ios') {
     return (
-      <span className="hidden sm:block text-xs text-[var(--ink-4)] px-2">
+      <span className="text-xs text-[var(--ink-4)] px-2">
         Tap <strong className="text-[var(--ink-3)]">Share</strong> then <strong className="text-[var(--ink-3)]">Add to Home Screen</strong>
       </span>
     );
@@ -42,6 +44,14 @@ export function InstallButton() {
         </svg>
         Install app
       </button>
+    );
+  }
+
+  if (platform === 'android') {
+    return (
+      <span className="text-xs text-[var(--ink-4)] px-2">
+        Tap <strong className="text-[var(--ink-3)]">&#8942;</strong> then <strong className="text-[var(--ink-3)]">Add to Home Screen</strong>
+      </span>
     );
   }
 
