@@ -93,6 +93,11 @@ export type ProjectData = {
     useKDPFreeISBN: boolean;
   };
   asin: string;
+  launchOutputs: {
+    backMatterText: string;
+    backCoverText: string;
+    metadataText: string;
+  };
 };
 
 export function cid(): string {
@@ -175,5 +180,10 @@ export function defaultProjectData(): ProjectData {
       useKDPFreeISBN: true,
     },
     asin: '',
+    launchOutputs: {
+      backMatterText: '',
+      backCoverText: '',
+      metadataText: '',
+    },
   };
 }

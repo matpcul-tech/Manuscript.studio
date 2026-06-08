@@ -2662,11 +2662,11 @@ function LaunchStage({ data, updateData, toast }: any) {
 
       <div className="flex-1 overflow-y-auto">
         {activeSubId === 'frontmatter' && <FrontMatterTab data={data} updateData={updateData} toast={toast} />}
-        {activeSubId === 'backmatter' && <LaunchStubTab title="Back Matter" message="About the Author, Note from the Author, review CTA, email signup, Also By, Sneak Peek, Acknowledgments. Drag to reorder, AI drafts pulled from your manuscript and voice sample." />}
-        {activeSubId === 'description' && <LaunchStubTab title="KDP Description" message="Generate 3 variants (commercial hook, literary, short and punchy). Character counts, sanitized HTML for KDP's Source view, plain-text fallback. Replaces the single-variant generator from the previous Launch flow." />}
-        {activeSubId === 'backcover' && <LaunchStubTab title="Back Cover Copy" message="Hook headline, body, pull quote, author bio one-liner. Print-ready preview with KDP barcode safe zone." />}
-        {activeSubId === 'metadata' && <LaunchStubTab title="Metadata Pack" message="Series and edition, 7 keyword slots with AI suggest, 2 categories, reading age, ASIN field with live link propagation, ISBN handling." />}
-        {activeSubId === 'export' && <LaunchStubTab title="Export" message="Generate EPUB 3.0, KDP DOCX, hardcover PDF, KDP-safe HTML description bundle, and TXT archive in one click. Front matter + manuscript + back matter merged in correct order." />}
+        {activeSubId === 'backmatter' && <BackMatterTab data={data} updateData={updateData} toast={toast} />}
+        {activeSubId === 'description' && <KDPDescriptionTab data={data} updateData={updateData} toast={toast} />}
+        {activeSubId === 'backcover' && <BackCoverTab data={data} updateData={updateData} toast={toast} />}
+        {activeSubId === 'metadata' && <MetadataPackTab data={data} updateData={updateData} toast={toast} />}
+        {activeSubId === 'export' && <ExportAllTab data={data} toast={toast} />}
       </div>
     </div>
   );
@@ -2888,6 +2888,701 @@ function FrontMatterTab({ data, updateData, toast }: any) {
           </div>
         </aside>
       </div>
+    </div>
+  );
+}
+
+/* ==================== BACK MATTER TAB ==================== */
+function BackMatterTab({ data, updateData, toast }: any) {
+  const lo = data.launchOutputs || {};
+  const [otherBooks, setOtherBooks] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [text, setText] = useState(lo.backMatterText || '');
+
+  function saveLaunchOutput(t: string) {
+    updateData((d: ProjectData) => ({
+      ...d,
+      launchOutputs: { ...(d.launchOutputs || {}), backMatterText: t },
+    }));
+  }
+
+  async function generate() {
+    setGenerating(true);
+    try {
+      const result = await callEngine({
+        task: 'back-matter',
+        userPrompt: `Write complete back matter for a ${data.genre} book titled "${data.title}" by ${data.author}.
+
+Author bio: ${data.bio || 'Not provided.'}
+Other books by this author: ${otherBooks || 'None listed.'}
+
+Generate these sections in order:
+1. About the Author (3 to 4 paragraphs, warm and personal, third person)
+2. A Note from the Author (1 to 2 paragraphs, heartfelt message to the reader)
+3. Enjoyed this book? (2 to 3 sentences, warm request for a review)
+4. Also By ${data.author || 'the Author'} (list: ${otherBooks || 'none listed'})
+5. Acknowledgments (1 to 2 paragraphs thanking key people)
+
+Write in the author's voice. No em dashes. No AI phrases.`,
+        systemOverride: 'You write professional back matter for independently published books. Match the author voice. No em dashes. No AI vocabulary.',
+        maxTokens: 2000,
+      });
+      setText(result);
+      saveLaunchOutput(result);
+    } catch (e: any) {
+      toast(e.message || 'Generation failed.', 'error');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function exportDocxLocal() {
+    if (!text) { toast('Generate back matter first.', 'error'); return; }
+    const esc = (s: string) => s.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[m]);
+    const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Back Matter</title><style>body{font-family:Garamond,Georgia,serif;font-size:11pt;line-height:1.5;}p{text-indent:.25in;margin:0;}p.first{text-indent:0;}</style></head><body>${text.split('\n\n').map(p => `<p class="first">${esc(p)}</p>`).join('\n')}</body></html>`;
+    const blob = new Blob([html], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'back-matter.doc';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  return (
+    <div className="p-8">
+      <div className="max-w-[1280px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-5">
+          <div>
+            <h2 className="font-display text-2xl font-semibold mb-1">Back matter</h2>
+            <p className="text-sm text-[var(--ink-3)]">Generate content that appears after the last chapter: About the Author, a note from the author, a review request, Also By, and Acknowledgments.</p>
+          </div>
+          <Section title="Book details">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Title (from Setup)">
+                <input value={data.title} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+              </Field>
+              <Field label="Genre (from Setup)">
+                <input value={data.genre} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+              </Field>
+            </div>
+          </Section>
+          <Section title="Author">
+            <Field label="Author name (from Setup)">
+              <input value={data.author} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+            </Field>
+            <Field label="Author bio (from Setup)" hint="Edit in Setup to update.">
+              <textarea value={data.bio || ''} disabled className={textareaCls + ' opacity-70 cursor-not-allowed min-h-[90px]'} />
+            </Field>
+            <Field label="Other books by this author (optional)">
+              <textarea
+                value={otherBooks}
+                onChange={e => setOtherBooks(e.target.value)}
+                className={textareaCls + ' min-h-[72px]'}
+                placeholder="Title One (2022), Title Two (2024)"
+              />
+            </Field>
+          </Section>
+          <button
+            onClick={generate}
+            disabled={generating}
+            className="px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold text-sm transition disabled:opacity-60 flex items-center gap-2"
+          >
+            {generating ? <><PackSpinner />Generating...</> : 'Generate back matter'}
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="font-display text-lg font-semibold">Generated output</div>
+            {text && (
+              <button onClick={exportDocxLocal} className="px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition">
+                Export .docx
+              </button>
+            )}
+          </div>
+          {text ? (
+            <textarea
+              value={text}
+              onChange={e => { setText(e.target.value); saveLaunchOutput(e.target.value); }}
+              className={textareaCls + ' min-h-[520px]'}
+            />
+          ) : (
+            <PackEmptyCard />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==================== KDP DESCRIPTION TAB ==================== */
+function KDPDescriptionTab({ data, updateData, toast }: any) {
+  const dv = data.descriptionVariants || {};
+  const [synopsis, setSynopsis] = useState('');
+  const [targetReader, setTargetReader] = useState('');
+  const [tone, setTone] = useState('thriller');
+  const [generating, setGenerating] = useState(false);
+  const [longForm, setLongForm] = useState(dv.variantA?.html || '');
+  const [shortForm, setShortForm] = useState(dv.variantB?.html || '');
+
+  function saveVariants(lf: string, sf: string) {
+    updateData((d: ProjectData) => ({
+      ...d,
+      descriptionVariants: {
+        ...d.descriptionVariants,
+        variantA: { html: lf, plain: lf.replace(/<[^>]+>/g, '') },
+        variantB: { html: sf, plain: sf.replace(/<[^>]+>/g, '') },
+        selected: 'a',
+      },
+    }));
+  }
+
+  async function generate() {
+    if (!synopsis) { toast('Enter a synopsis first.', 'error'); return; }
+    setGenerating(true);
+    try {
+      const result = await callEngine({
+        task: 'kdp-description',
+        userPrompt: `Write two Amazon KDP descriptions for "${data.title}" by ${data.author}.
+
+Genre: ${data.genre}
+Tone: ${tone}
+Synopsis: ${synopsis}
+Target reader: ${targetReader || 'general adult readers'}
+
+Respond with EXACTLY this format:
+===LONG===
+[Long form, 500 to 600 words. Use <b>bold</b> for key phrases and the protagonist name. Strong hook in the first sentence. No em dashes. End with a call to action.]
+===SHORT===
+[Short form, 120 to 150 words. Punchy hook. No em dashes.]`,
+        systemOverride: 'You write professional Amazon KDP book descriptions. Use <b> tags for bold text. No em dashes. Strong opening hook. No spoilers.',
+        maxTokens: 1600,
+      });
+      const longMatch = result.match(/===LONG===([\s\S]*?)(?:===SHORT===|$)/);
+      const shortMatch = result.match(/===SHORT===([\s\S]*?)$/);
+      const lf = longMatch ? longMatch[1].trim() : result;
+      const sf = shortMatch ? shortMatch[1].trim() : '';
+      setLongForm(lf);
+      setShortForm(sf);
+      saveVariants(lf, sf);
+    } catch (e: any) {
+      toast(e.message || 'Generation failed.', 'error');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function copyText(text: string, label: string) {
+    navigator.clipboard.writeText(text).then(
+      () => toast(`${label} copied.`, 'success'),
+      () => toast('Could not copy. Select the text manually.', 'error')
+    );
+  }
+
+  return (
+    <div className="p-8">
+      <div className="max-w-[1280px] mx-auto space-y-6">
+        <div>
+          <h2 className="font-display text-2xl font-semibold mb-1">KDP description</h2>
+          <p className="text-sm text-[var(--ink-3)]">Generate long and short form Amazon descriptions with HTML bold tags, ready to paste into KDP Source view.</p>
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6">
+          <div className="space-y-4">
+            <Section title="Book info">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Title">
+                  <input value={data.title} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+                </Field>
+                <Field label="Genre">
+                  <input value={data.genre} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+                </Field>
+              </div>
+              <Field label="Synopsis">
+                <textarea
+                  value={synopsis}
+                  onChange={e => setSynopsis(e.target.value)}
+                  className={textareaCls + ' min-h-[120px]'}
+                  placeholder="Who is the protagonist, what do they want, what stands in their way? No spoilers."
+                />
+              </Field>
+              <Field label="Target reader">
+                <input
+                  value={targetReader}
+                  onChange={e => setTargetReader(e.target.value)}
+                  className={inputCls}
+                  placeholder="e.g. fans of dark psychological thrillers, ages 25 to 45"
+                />
+              </Field>
+              <Field label="Tone">
+                <select value={tone} onChange={e => setTone(e.target.value)} className={inputCls}>
+                  <option value="thriller">Thriller</option>
+                  <option value="cozy">Cozy</option>
+                  <option value="romance">Romance</option>
+                  <option value="inspirational">Inspirational</option>
+                  <option value="literary">Literary</option>
+                  <option value="other">Other</option>
+                </select>
+              </Field>
+            </Section>
+            <button
+              onClick={generate}
+              disabled={generating || !synopsis}
+              className="w-full px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold text-sm transition disabled:opacity-60 flex items-center justify-center gap-2"
+            >
+              {generating ? <><PackSpinner />Generating...</> : 'Generate descriptions'}
+            </button>
+          </div>
+          <div className="space-y-4">
+            <KDPOutputCard
+              label="Long form"
+              badge="600 words max"
+              content={longForm}
+              onCopy={() => copyText(longForm, 'Long form')}
+              onChange={(v: string) => { setLongForm(v); saveVariants(v, shortForm); }}
+              placeholder="Long form description (with HTML bold tags for KDP Source view) will appear here."
+            />
+            <KDPOutputCard
+              label="Short form"
+              badge="150 words max"
+              content={shortForm}
+              onCopy={() => copyText(shortForm, 'Short form')}
+              onChange={(v: string) => { setShortForm(v); saveVariants(longForm, v); }}
+              placeholder="Short form description will appear here."
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function KDPOutputCard({ label, badge, content, onCopy, onChange, placeholder }: any) {
+  return (
+    <div className="bg-white border border-[var(--line)] rounded-xl shadow-sm overflow-hidden">
+      <div className="px-4 py-2.5 border-b border-[var(--line)] bg-[var(--bg-2)] flex items-center gap-3">
+        <span className="font-semibold text-sm text-[var(--ink-2)]">{label}</span>
+        <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--ink-4)] bg-[var(--bg-3)] px-2 py-0.5 rounded-full">{badge}</span>
+        {content && (
+          <button onClick={onCopy} className="ml-auto px-2.5 py-1 rounded-md border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-[10px] font-bold uppercase tracking-wider transition">
+            Copy
+          </button>
+        )}
+      </div>
+      {content ? (
+        <textarea
+          value={content}
+          onChange={e => onChange(e.target.value)}
+          className="w-full px-4 py-4 text-[13px] leading-relaxed font-mono text-[var(--ink-2)] resize-y min-h-[200px] outline-none focus:ring-2 focus:ring-[var(--blue)]/12 bg-white border-0"
+        />
+      ) : (
+        <div className="px-4 py-6 text-sm text-[var(--ink-3)]">{placeholder}</div>
+      )}
+    </div>
+  );
+}
+
+/* ==================== BACK COVER TAB ==================== */
+function BackCoverTab({ data, updateData, toast }: any) {
+  const lo = data.launchOutputs || {};
+  const bc = data.backCover || {};
+  const [synopsis, setSynopsis] = useState('');
+  const [authorBioLine, setAuthorBioLine] = useState(bc.authorBioOneLine || '');
+  const [generating, setGenerating] = useState(false);
+  const output = lo.backCoverText || '';
+
+  async function generate() {
+    if (!synopsis) { toast('Enter a synopsis first.', 'error'); return; }
+    setGenerating(true);
+    try {
+      const result = await callEngine({
+        task: 'back-cover',
+        userPrompt: `Write back cover copy for the ${data.genre} book "${data.title}" by ${data.author}.
+
+Synopsis: ${synopsis}
+Author bio one-liner: ${authorBioLine || (data.bio || '').split('.')[0] || 'Not provided.'}
+
+Respond with EXACTLY this format:
+===HOOK===
+[One punchy hook line, 10 to 20 words. No em dashes.]
+===BODY===
+[Three paragraphs, 60 to 80 words each. Raise the stakes. No spoilers. No em dashes.]
+===TAGLINE===
+[One closing tagline, 8 to 15 words]
+===AUTHOR===
+[One sentence author bio]`,
+        systemOverride: 'You write punchy, professional back cover copy for independently published books. No em dashes. No spoilers. Strong opening hook.',
+        maxTokens: 800,
+      });
+      const hook = (result.match(/===HOOK===([\s\S]*?)(?:===BODY===|$)/) || [])[1]?.trim() || '';
+      const body = (result.match(/===BODY===([\s\S]*?)(?:===TAGLINE===|$)/) || [])[1]?.trim() || '';
+      const tagline = (result.match(/===TAGLINE===([\s\S]*?)(?:===AUTHOR===|$)/) || [])[1]?.trim() || '';
+      const author = (result.match(/===AUTHOR===([\s\S]*?)$/) || [])[1]?.trim() || '';
+      const composed = [hook, body, tagline, author].filter(Boolean).join('\n\n');
+      updateData((d: ProjectData) => ({
+        ...d,
+        backCover: { ...d.backCover, hookHeadline: hook, body, pullQuote: tagline, authorBioOneLine: author || authorBioLine, genreTag: data.genre },
+        launchOutputs: { ...(d.launchOutputs || {}), backCoverText: composed },
+      }));
+    } catch (e: any) {
+      toast(e.message || 'Generation failed.', 'error');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function saveOutput(t: string) {
+    updateData((d: ProjectData) => ({
+      ...d,
+      launchOutputs: { ...(d.launchOutputs || {}), backCoverText: t },
+    }));
+  }
+
+  function exportDocxLocal() {
+    if (!output) { toast('Generate back cover copy first.', 'error'); return; }
+    const esc = (s: string) => s.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[m]);
+    const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Back Cover</title><style>body{font-family:Garamond,Georgia,serif;font-size:11pt;line-height:1.6;max-width:5in;margin:1in auto;}p{margin:.5em 0;}</style></head><body>${output.split('\n\n').map(p => `<p>${esc(p)}</p>`).join('\n')}</body></html>`;
+    const blob = new Blob([html], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'back-cover.doc';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  return (
+    <div className="p-8">
+      <div className="max-w-[1280px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-5">
+          <div>
+            <h2 className="font-display text-2xl font-semibold mb-1">Back cover copy</h2>
+            <p className="text-sm text-[var(--ink-3)]">Generate hook line, body paragraphs, tagline, and author bio block for the back of your book.</p>
+          </div>
+          <Section title="Book details">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Title">
+                <input value={data.title} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+              </Field>
+              <Field label="Genre">
+                <input value={data.genre} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+              </Field>
+            </div>
+            <Field label="Synopsis">
+              <textarea
+                value={synopsis}
+                onChange={e => setSynopsis(e.target.value)}
+                className={textareaCls + ' min-h-[120px]'}
+                placeholder="Who is the protagonist, what do they want, what stands in their way?"
+              />
+            </Field>
+            <Field label="Author bio one-liner">
+              <input
+                value={authorBioLine}
+                onChange={e => setAuthorBioLine(e.target.value)}
+                className={inputCls}
+                placeholder="e.g. Jane Doe lives in Austin, Texas with two dogs and a very old cat."
+              />
+            </Field>
+          </Section>
+          <button
+            onClick={generate}
+            disabled={generating || !synopsis}
+            className="px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold text-sm transition disabled:opacity-60 flex items-center gap-2"
+          >
+            {generating ? <><PackSpinner />Generating...</> : 'Generate back cover'}
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="font-display text-lg font-semibold">Generated copy</div>
+            {output && (
+              <button onClick={exportDocxLocal} className="px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition">
+                Export .docx
+              </button>
+            )}
+          </div>
+          {output ? (
+            <textarea
+              value={output}
+              onChange={e => saveOutput(e.target.value)}
+              className={textareaCls + ' min-h-[520px]'}
+            />
+          ) : (
+            <PackEmptyCard />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==================== METADATA PACK TAB ==================== */
+function MetadataPackTab({ data, updateData, toast }: any) {
+  const mp = data.metadataPack || {};
+  const lo = data.launchOutputs || {};
+  const [subgenre, setSubgenre] = useState('');
+  const [targetAudience, setTargetAudience] = useState('');
+  const [keywords, setKeywords] = useState<string[]>(
+    mp.keywords?.length === 7 ? mp.keywords : ['', '', '', '', '', '', '']
+  );
+  const [generating, setGenerating] = useState(false);
+  const [output, setOutput] = useState(lo.metadataText || '');
+
+  function updateKw(i: number, val: string) {
+    const next = keywords.map((k, idx) => idx === i ? val : k);
+    setKeywords(next);
+    updateData((d: ProjectData) => ({ ...d, metadataPack: { ...d.metadataPack, keywords: next } }));
+  }
+
+  function saveOutput(t: string) {
+    updateData((d: ProjectData) => ({
+      ...d,
+      launchOutputs: { ...(d.launchOutputs || {}), metadataText: t },
+    }));
+  }
+
+  async function generate() {
+    setGenerating(true);
+    try {
+      const result = await callEngine({
+        task: 'metadata-pack',
+        userPrompt: `Generate a complete KDP metadata pack.
+
+Title: ${data.title}
+Subtitle: ${data.subtitle || 'None'}
+Author: ${data.author}
+Genre: ${data.genre}
+Subgenre: ${subgenre || 'Not specified'}
+Target audience: ${targetAudience || 'General adult readers'}
+Keywords entered: ${keywords.filter(Boolean).join(', ') || 'None'}
+
+Respond with EXACTLY this format:
+===BISAC===
+[Top 3 BISAC suggestions, one per line. Format: CODE -- Full Category Path]
+===KEYWORDS===
+[7 optimized KDP keyword strings, one per line, 2 to 4 words each]
+===50WORD===
+[Book description in 50 words or fewer]
+===100WORD===
+[Book description in 100 words or fewer]`,
+        systemOverride: 'You are a KDP metadata expert. Output clean, formatted metadata. No em dashes. No filler text.',
+        maxTokens: 900,
+      });
+      const bisac = (result.match(/===BISAC===([\s\S]*?)(?:===KEYWORDS===|$)/) || [])[1]?.trim() || '';
+      const kws = (result.match(/===KEYWORDS===([\s\S]*?)(?:===50WORD===|$)/) || [])[1]?.trim() || '';
+      const desc50 = (result.match(/===50WORD===([\s\S]*?)(?:===100WORD===|$)/) || [])[1]?.trim() || '';
+      const desc100 = (result.match(/===100WORD===([\s\S]*?)$/) || [])[1]?.trim() || '';
+      const formatted = [
+        `BISAC CATEGORIES\n${'='.repeat(18)}\n${bisac}`,
+        `KEYWORD STRINGS\n${'='.repeat(18)}\n${kws}`,
+        `50-WORD DESCRIPTION\n${'='.repeat(18)}\n${desc50}`,
+        `100-WORD DESCRIPTION\n${'='.repeat(18)}\n${desc100}`,
+      ].join('\n\n');
+      setOutput(formatted);
+      const aiKws = kws.split('\n').filter(Boolean).slice(0, 7);
+      const merged = keywords.map((k, i) => k || aiKws[i] || '');
+      setKeywords(merged);
+      updateData((d: ProjectData) => ({
+        ...d,
+        metadataPack: { ...d.metadataPack, keywords: merged },
+        launchOutputs: { ...(d.launchOutputs || {}), metadataText: formatted },
+      }));
+    } catch (e: any) {
+      toast(e.message || 'Generation failed.', 'error');
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  function exportTxt() {
+    if (!output) { toast('Generate metadata first.', 'error'); return; }
+    const blob = new Blob([output], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'metadata-pack.txt';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function exportMetaDocx() {
+    if (!output) { toast('Generate metadata first.', 'error'); return; }
+    const esc = (s: string) => s.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[m]);
+    const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Metadata Pack</title><style>body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.5;}pre{font-family:'Courier New',monospace;font-size:10pt;white-space:pre-wrap;}</style></head><body><pre>${esc(output)}</pre></body></html>`;
+    const blob = new Blob([html], { type: 'application/msword' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'metadata-pack.doc';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  return (
+    <div className="p-8">
+      <div className="max-w-[1280px] mx-auto grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6">
+        <div className="space-y-5">
+          <div>
+            <h2 className="font-display text-2xl font-semibold mb-1">Metadata pack</h2>
+            <p className="text-sm text-[var(--ink-3)]">Generate BISAC category suggestions, optimized keyword strings, and short descriptions for KDP metadata fields.</p>
+          </div>
+          <Section title="Book info">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Title">
+                <input value={data.title} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+              </Field>
+              <Field label="Subtitle">
+                <input value={data.subtitle} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+              </Field>
+              <Field label="Author">
+                <input value={data.author} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+              </Field>
+              <Field label="Genre">
+                <input value={data.genre} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
+              </Field>
+            </div>
+            <Field label="Subgenre">
+              <input value={subgenre} onChange={e => setSubgenre(e.target.value)} className={inputCls} placeholder="e.g. dark psychological, cozy mystery, historical romance" />
+            </Field>
+            <Field label="Target audience">
+              <input value={targetAudience} onChange={e => setTargetAudience(e.target.value)} className={inputCls} placeholder="e.g. adult women 25 to 45, fans of Gillian Flynn" />
+            </Field>
+          </Section>
+          <Section title="Keywords (7)">
+            <div className="text-xs text-[var(--ink-3)] -mt-1">Enter what you have. AI will fill any empty slots.</div>
+            {keywords.map((kw, i) => (
+              <input key={i} value={kw} onChange={e => updateKw(i, e.target.value)} className={inputCls} placeholder={`Keyword ${i + 1}`} />
+            ))}
+          </Section>
+          <button
+            onClick={generate}
+            disabled={generating}
+            className="w-full px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold text-sm transition disabled:opacity-60 flex items-center justify-center gap-2"
+          >
+            {generating ? <><PackSpinner />Generating...</> : 'Generate metadata pack'}
+          </button>
+        </div>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="font-display text-lg font-semibold">Generated metadata</div>
+            {output && (
+              <div className="flex gap-2">
+                <button onClick={exportTxt} className="px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition">Export .txt</button>
+                <button onClick={exportMetaDocx} className="px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition">Export .docx</button>
+              </div>
+            )}
+          </div>
+          {output ? (
+            <textarea
+              value={output}
+              onChange={e => { setOutput(e.target.value); saveOutput(e.target.value); }}
+              className="w-full px-4 py-4 text-[13px] leading-relaxed font-mono text-[var(--ink-2)] rounded-xl border border-[var(--line)] focus:border-[var(--blue)] focus:ring-2 focus:ring-[var(--blue)]/12 outline-none bg-white resize-y min-h-[560px]"
+            />
+          ) : (
+            <PackEmptyCard />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ==================== EXPORT ALL TAB ==================== */
+function ExportAllTab({ data, toast }: any) {
+  const lo = data.launchOutputs || {};
+  const dv = data.descriptionVariants || {};
+  const bc = data.backCover || {};
+  const [exporting, setExporting] = useState(false);
+
+  const readiness = [
+    { label: 'Back Matter', ready: !!lo.backMatterText },
+    { label: 'KDP Description', ready: !!(dv.variantA?.html) },
+    { label: 'Back Cover', ready: !!lo.backCoverText },
+    { label: 'Metadata Pack', ready: !!lo.metadataText },
+  ];
+  const allReady = readiness.every(r => r.ready);
+
+  async function exportAll() {
+    setExporting(true);
+    try {
+      const JSZip = (await import('jszip')).default;
+      const zip = new JSZip();
+      const slug = (data.title || 'manuscript').replace(/[^a-z0-9-]+/gi, '-').toLowerCase();
+      const esc = (s: string) => s.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[m]);
+
+      const bmHtml = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Back Matter</title><style>body{font-family:Garamond,Georgia,serif;font-size:11pt;line-height:1.5;}p{text-indent:.25in;margin:0;}p.first{text-indent:0;}</style></head><body>${(lo.backMatterText || '').split('\n\n').map((p: string) => `<p class="first">${esc(p)}</p>`).join('\n')}</body></html>`;
+      zip.file('back-matter.doc', bmHtml);
+
+      const kdpTxt = `KDP LONG FORM DESCRIPTION\n${'='.repeat(28)}\n${(dv.variantA?.html || '').replace(/<[^>]+>/g, '')}\n\nKDP SHORT FORM DESCRIPTION\n${'='.repeat(28)}\n${(dv.variantB?.html || '').replace(/<[^>]+>/g, '')}`;
+      zip.file('kdp-description.txt', kdpTxt);
+
+      const coverHtml = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Back Cover</title><style>body{font-family:Garamond,Georgia,serif;font-size:11pt;line-height:1.6;max-width:5in;margin:1in auto;}p{margin:.5em 0;}</style></head><body>${(lo.backCoverText || '').split('\n\n').map((p: string) => `<p>${esc(p)}</p>`).join('\n')}</body></html>`;
+      zip.file('back-cover.doc', coverHtml);
+
+      zip.file('metadata-pack.txt', lo.metadataText || '');
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = `${slug}-publishing-pack.zip`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      toast('Publishing pack exported.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Export failed.', 'error');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  return (
+    <div className="p-8 max-w-2xl mx-auto">
+      <div className="space-y-6">
+        <div>
+          <h2 className="font-display text-2xl font-semibold mb-1">Export publishing pack</h2>
+          <p className="text-sm text-[var(--ink-3)]">Bundles all four generated outputs into a single .zip: back-matter.doc, kdp-description.txt, back-cover.doc, metadata-pack.txt.</p>
+        </div>
+        <Section title="Tab status">
+          <div className="space-y-1">
+            {readiness.map(r => (
+              <div key={r.label} className="flex items-center gap-3 py-1.5">
+                {r.ready ? (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5" className="w-5 h-5 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 flex-shrink-0 text-[var(--ink-4)]"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                )}
+                <span className={`text-sm ${r.ready ? 'text-[var(--ink-2)]' : 'text-[var(--ink-3)]'}`}>{r.label}</span>
+                <span className={`ml-auto text-xs font-bold ${r.ready ? 'text-[var(--green)]' : 'text-[var(--ink-4)]'}`}>{r.ready ? 'Ready' : 'Not generated'}</span>
+              </div>
+            ))}
+          </div>
+        </Section>
+        {!allReady && (
+          <p className="text-sm text-[var(--ink-3)] bg-[var(--bg-3)] rounded-lg px-4 py-3">
+            Generate content in all four tabs before exporting the bundle.
+          </p>
+        )}
+        <button
+          onClick={exportAll}
+          disabled={!allReady || exporting}
+          className="w-full px-6 py-3 rounded-xl bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+        >
+          {exporting ? (
+            <><PackSpinner />Building zip...</>
+          ) : (
+            <>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Export publishing pack (.zip)
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* Micro-components shared by Launch tabs */
+function PackSpinner() {
+  return <span className="animate-spin w-4 h-4 border-2 border-white/30 border-t-white rounded-full inline-block flex-shrink-0" />;
+}
+
+function PackEmptyCard() {
+  return (
+    <div className="bg-white border border-dashed border-[var(--line)] rounded-xl p-10 text-center">
+      <p className="text-sm text-[var(--ink-3)]">Fill in the form and click Generate.</p>
     </div>
   );
 }
