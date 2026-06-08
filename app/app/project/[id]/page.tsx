@@ -2562,6 +2562,7 @@ const LAUNCH_SUB_TABS = [
   { id: 'backcover', label: 'Back Cover' },
   { id: 'metadata', label: 'Metadata Pack' },
   { id: 'export', label: 'Export' },
+  { id: 'kdpupload', label: 'KDP Checklist' },
 ];
 
 function defaultFrontMatter() {
@@ -2666,6 +2667,7 @@ function LaunchStage({ data, updateData, toast }: any) {
         {activeSubId === 'backcover' && <BackCoverTab data={data} updateData={updateData} toast={toast} />}
         {activeSubId === 'metadata' && <MetadataPackTab data={data} updateData={updateData} toast={toast} />}
         {activeSubId === 'export' && <ExportAllTab data={data} toast={toast} />}
+        {activeSubId === 'kdpupload' && <KDPChecklistTab data={data} toast={toast} />}
       </div>
     </div>
   );
@@ -3569,6 +3571,122 @@ function ExportAllTab({ data, toast }: any) {
           )}
         </button>
       </div>
+    </div>
+  );
+}
+
+function KDPChecklistTab({ data, toast }: any) {
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+
+  function copy(text: string, key: string) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+      toast('Copied!', 'success');
+      setChecked(c => ({ ...c, [key]: true }));
+    });
+  }
+
+  const fm = data.frontMatter || {};
+  const authorFirst = fm.authorFirst || (data.author ? data.author.split(' ')[0] : '');
+  const authorLast = fm.authorLast || (data.author ? data.author.split(' ').slice(1).join(' ') : '');
+
+  const dv = data.descriptionVariants || {};
+  const sel = dv.selected;
+  const descText = sel
+    ? (dv[`variant${sel.toUpperCase()}`]?.plain || '')
+    : (data.kdpDescription || '');
+
+  const keywords: string[] = (data.metadataPack?.keywords || data.kdpKeywords || []).filter(Boolean);
+  const categories: any[] = (data.metadataPack?.categories || []);
+
+  type Field = { key: string; label: string; value: string; hint?: string; long?: boolean };
+  const fields: Field[] = [
+    { key: 'title', label: 'Book Title', value: data.title || '' },
+    { key: 'subtitle', label: 'Subtitle', value: data.subtitle || '' },
+    { key: 'authorFirst', label: 'Author First Name', value: authorFirst },
+    { key: 'authorLast', label: 'Author Last Name', value: authorLast },
+    { key: 'description', label: 'Description', value: descText, hint: `${descText.length}/4000 chars`, long: true },
+    ...keywords.map((kw, i) => ({ key: `kw${i}`, label: `Keyword ${i + 1}`, value: kw })),
+    ...categories.map((cat, i) => ({ key: `cat${i}`, label: `Category ${i + 1}`, value: cat.path || String(cat) })),
+    { key: 'price', label: 'List Price', value: data.kdpPrice ? String(data.kdpPrice) : '' },
+  ].filter(f => f.value.trim());
+
+  const doneCount = fields.filter(f => checked[f.key]).length;
+
+  return (
+    <div className="max-w-2xl mx-auto py-8 px-5 space-y-5">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="font-display text-2xl font-semibold">KDP Checklist</h2>
+          <p className="text-sm text-[var(--ink-3)] mt-1">Tap Copy, switch to KDP, paste. Check off as you go.</p>
+        </div>
+        <a
+          href="https://kdp.amazon.com/title-setup/kindle/new"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-sm font-semibold transition shadow-sm flex-shrink-0"
+        >
+          Open KDP
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+            <path d="M11 3h6v6M17 3l-9 9M8 5H4a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1v-4" />
+          </svg>
+        </a>
+      </div>
+
+      {fields.length > 0 && (
+        <div className="bg-[var(--bg-3)] rounded-xl px-4 py-3">
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="font-medium text-[var(--ink-2)]">{doneCount} of {fields.length} fields copied</span>
+            {doneCount === fields.length && <span className="text-[var(--green)] font-semibold">All done!</span>}
+          </div>
+          <div className="h-2 bg-[var(--line)] rounded-full overflow-hidden">
+            <div
+              className="h-full bg-[var(--blue)] rounded-full transition-all duration-300"
+              style={{ width: fields.length > 0 ? `${(doneCount / fields.length) * 100}%` : '0%' }}
+            />
+          </div>
+        </div>
+      )}
+
+      {fields.length === 0 ? (
+        <div className="bg-white border border-dashed border-[var(--line)] rounded-2xl p-12 text-center">
+          <p className="text-[var(--ink-3)] text-sm">Complete the other Launch tabs first to populate your KDP fields here.</p>
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          {fields.map(f => (
+            <div
+              key={f.key}
+              className={`bg-white rounded-xl border p-4 flex items-start gap-3 transition ${checked[f.key] ? 'border-[var(--green)] bg-[var(--green-soft)]' : 'border-[var(--line)]'}`}
+            >
+              <button
+                onClick={() => setChecked(c => ({ ...c, [f.key]: !c[f.key] }))}
+                className={`mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 flex items-center justify-center transition ${checked[f.key] ? 'bg-[var(--green)] border-[var(--green)] text-white' : 'border-[var(--ink-4)]'}`}
+                aria-label="Mark done"
+              >
+                {checked[f.key] && (
+                  <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-3 h-3">
+                    <path d="M2 6l3 3 5-5" />
+                  </svg>
+                )}
+              </button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-[11px] font-bold text-[var(--ink-4)] uppercase tracking-wider">{f.label}</span>
+                  {f.hint && <span className="text-[11px] text-[var(--ink-4)]">{f.hint}</span>}
+                </div>
+                <p className={`text-sm text-[var(--ink-2)] ${f.long ? 'line-clamp-3' : 'truncate'}`}>{f.value}</p>
+              </div>
+              <button
+                onClick={() => copy(f.value, f.key)}
+                className="flex-shrink-0 px-3 py-1.5 rounded-lg bg-[var(--blue-soft)] hover:bg-[var(--blue)] text-[var(--blue-deep)] hover:text-white text-xs font-bold transition"
+              >
+                Copy
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
