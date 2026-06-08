@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 
@@ -14,10 +14,12 @@ type Project = {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [userEmail, setUserEmail] = useState('');
+  const upgraded = searchParams.get('upgraded') === 'true';
 
   useEffect(() => {
     loadProjects();
@@ -82,9 +84,16 @@ export default function DashboardPage() {
         </Link>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-sm text-[var(--ink-3)] hidden sm:block">{userEmail}</span>
+          <Link href="/billing" className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)] px-3 py-2 rounded-lg hover:bg-[var(--bg-3)]">Billing</Link>
           <button onClick={signOut} className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)] px-3 py-2 rounded-lg hover:bg-[var(--bg-3)]">Sign out</button>
         </div>
       </nav>
+
+      {upgraded && (
+        <div className="bg-[var(--green)] text-white text-sm font-semibold text-center py-3 px-6">
+          Your plan has been upgraded. Welcome to the next level.
+        </div>
+      )}
 
       <div className="max-w-5xl mx-auto px-6 py-10">
         <div className="flex items-center justify-between mb-8">
