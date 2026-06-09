@@ -13,6 +13,13 @@ type Sub = {
 
 const PLANS = [
   {
+    tier: 'free',
+    name: 'Free',
+    price: '$0',
+    sub: 'forever',
+    items: ['1 project', '1 voice profile', '30 engine calls per day', 'Export .docx and .txt', 'No credit card required'],
+  },
+  {
     tier: 'pro',
     name: 'Pro',
     price: '$19',
@@ -135,7 +142,7 @@ export default function BillingPage() {
         <Link href="/app" className="ml-auto text-sm text-[var(--ink-3)] hover:text-[var(--ink)] px-3 py-2 rounded-lg hover:bg-[var(--bg-3)]">Back to projects</Link>
       </nav>
 
-      <div className="max-w-2xl mx-auto px-6 py-12">
+      <div className="max-w-4xl mx-auto px-6 py-12">
         <h1 className="font-display text-3xl font-bold mb-1">Billing</h1>
         <p className="text-[var(--ink-3)] mb-10">Manage your plan and payment method.</p>
 
@@ -176,56 +183,52 @@ export default function BillingPage() {
               <div className="text-sm text-[var(--red)] bg-[var(--red-soft)] rounded-lg px-4 py-3 mb-6">{error}</div>
             )}
 
-            {/* Free plan summary -- shown when on free plan */}
-            {!isPaid && (
-              <div className="bg-[var(--bg-3)] rounded-2xl border border-[var(--line)] p-6 mb-6">
-                <div className="text-xs font-bold tracking-wider text-[var(--ink-4)] uppercase mb-2">Free plan includes</div>
-                <ul className="space-y-1.5">
-                  {['3 AI generations per month', '3 manuscripts', 'Quick Draft (limited)', 'KDP Launch Walkthrough', 'Basic structure check'].map(it => (
-                    <li key={it} className="text-sm text-[var(--ink-2)] flex items-start gap-2">
-                      <span className="text-[var(--green)] font-bold mt-0.5 flex-shrink-0">&#10003;</span>
-                      <span>{it}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* Upgrade options -- only shown for free users */}
-            {!isPaid && (
-              <>
-                <div className="text-sm font-semibold text-[var(--ink-3)] mb-4">Upgrade your plan</div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                  {PLANS.map(plan => (
-                    <div key={plan.tier} className={`relative p-7 rounded-2xl border-2 bg-white ${plan.tier === 'pro' ? 'border-[var(--blue)] shadow-[var(--shadow-lg)]' : 'border-[var(--line)]'}`}>
-                      {plan.tier === 'pro' && (
-                        <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-[var(--blue)] text-white text-[11px] font-bold tracking-wider uppercase">Most popular</div>
-                      )}
-                      <div className="font-display text-xl font-bold mb-1">{plan.name}</div>
-                      <div className="flex items-baseline gap-1 mb-4">
-                        <span className="font-display text-4xl font-bold">{plan.price}</span>
-                        <span className="text-sm text-[var(--ink-3)]">/ {plan.sub}</span>
-                      </div>
-                      <ul className="space-y-2 mb-6">
-                        {plan.items.map(it => (
-                          <li key={it} className="text-sm text-[var(--ink-2)] flex items-start gap-2">
-                            <span className="text-[var(--green)] font-bold mt-0.5 flex-shrink-0">&#10003;</span>
-                            <span>{it}</span>
-                          </li>
-                        ))}
-                      </ul>
-                      <button
-                        onClick={() => startCheckout(plan.tier)}
-                        disabled={!!actionLoading}
-                        className={`w-full py-2.5 rounded-lg font-semibold text-sm transition disabled:opacity-50 ${plan.tier === 'pro' ? 'bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white shadow-[0_4px_14px_rgba(79,109,245,0.4)]' : 'bg-white border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)]'}`}
-                      >
-                        {actionLoading === plan.tier ? 'Loading...' : `Upgrade to ${plan.name}`}
-                      </button>
+            {/* Plan comparison -- always shown */}
+            <div className="text-sm font-semibold text-[var(--ink-3)] mb-4">
+              {isPaid ? 'All plans' : 'Upgrade your plan'}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              {PLANS.map(p => {
+                const isCurrent = sub?.plan === p.tier || (!sub?.plan && p.tier === 'free');
+                const isUpgrade = p.tier !== 'free' && !isCurrent;
+                return (
+                  <div key={p.tier} className={`relative p-6 rounded-2xl border-2 bg-white ${p.tier === 'pro' && !isCurrent ? 'border-[var(--blue)] shadow-[var(--shadow-lg)]' : isCurrent ? 'border-[var(--green)]' : 'border-[var(--line)]'}`}>
+                    {'badge' in p && p.badge && !isCurrent && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-[var(--blue)] text-white text-[11px] font-bold tracking-wider uppercase">{p.badge}</div>
+                    )}
+                    {isCurrent && (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-[var(--green)] text-white text-[11px] font-bold tracking-wider uppercase">Current</div>
+                    )}
+                    <div className="font-display text-xl font-bold mb-1">{p.name}</div>
+                    <div className="flex items-baseline gap-1 mb-4">
+                      <span className="font-display text-3xl font-bold">{p.price}</span>
+                      <span className="text-sm text-[var(--ink-3)]">/ {p.sub}</span>
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
+                    <ul className="space-y-2 mb-6">
+                      {p.items.map(it => (
+                        <li key={it} className="text-sm text-[var(--ink-2)] flex items-start gap-2">
+                          <span className="text-[var(--green)] font-bold mt-0.5 flex-shrink-0">&#10003;</span>
+                          <span>{it}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {isUpgrade ? (
+                      <button
+                        onClick={() => startCheckout(p.tier)}
+                        disabled={!!actionLoading}
+                        className={`w-full py-2.5 rounded-lg font-semibold text-sm transition disabled:opacity-50 ${p.tier === 'pro' ? 'bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white shadow-[0_4px_14px_rgba(79,109,245,0.4)]' : 'bg-white border border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)]'}`}
+                      >
+                        {actionLoading === p.tier ? 'Loading...' : `Upgrade to ${p.name}`}
+                      </button>
+                    ) : (
+                      <div className="w-full py-2.5 rounded-lg text-center text-sm font-semibold bg-[var(--bg-3)] text-[var(--ink-3)]">
+                        {isCurrent ? 'Your current plan' : 'Included'}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </>
         )}
       </div>

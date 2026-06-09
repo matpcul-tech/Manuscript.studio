@@ -112,7 +112,7 @@ function DashboardContent() {
           {plan === 'free' && projects.length >= 1 ? (
             <Link
               href="/billing"
-              className="px-5 py-2.5 rounded-lg bg-[var(--amber,#F59E0B)] hover:opacity-90 text-white font-semibold shadow-sm transition flex items-center gap-2 text-sm"
+              className="px-5 py-2.5 rounded-lg bg-[var(--amber)] hover:opacity-90 text-white font-semibold shadow-sm transition flex items-center gap-2 text-sm"
             >
               Upgrade for more projects
             </Link>

@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
       .select('id', { count: 'exact', head: true })
       .eq('user_id', user.id);
     if ((count ?? 0) >= 1) {
-      return NextResponse.json({ error: 'Free plan is limited to 1 project.', code: 'PROJECT_LIMIT' }, { status: 403 });
+      return NextResponse.json({ error: 'Free plan is limited to 1 project. Upgrade to Pro for unlimited projects.', code: 'PROJECT_LIMIT' }, { status: 403 });
     }
   }
 
