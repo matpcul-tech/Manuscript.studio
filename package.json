@@ -24,6 +24,7 @@
     "@capacitor/status-bar": "^8.0.2",
     "@supabase/ssr": "^0.5.1",
     "@supabase/supabase-js": "^2.45.4",
+    "@vercel/analytics": "^2.0.1",
     "inngest": "^4.4.0",
     "jspdf": "^2.5.2",
     "jszip": "^3.10.1",
