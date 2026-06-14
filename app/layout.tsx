@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Analytics } from '@vercel/analytics/next';
+import { VersionChecker } from '@/components/VersionChecker';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="apple-touch-icon" href="/icons/icon-512.svg" />
       </head>
       <body>
+        <VersionChecker />
         {children}
         <Analytics />
         <script dangerouslySetInnerHTML={{ __html: `
