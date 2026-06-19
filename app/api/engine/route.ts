@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { checkGenerationLimit, incrementGenerationCount } from '@/lib/checkGenerationLimit';
+import { ANTHROPIC_MODEL } from '@/lib/ai-config';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
       : buildSystem(task || '', voiceSample, voiceProfile, voiceNotes);
 
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: ANTHROPIC_MODEL,
       max_tokens: Math.min(maxTokens, 4000),
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],

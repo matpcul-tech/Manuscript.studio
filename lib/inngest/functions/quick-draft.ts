@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { inngest } from '../client';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { ANTHROPIC_MODEL } from '@/lib/ai-config';
 
 // ============================================================================
 // Quick Draft as a background job.
@@ -151,7 +152,7 @@ Rules:
       const userPrompt = `BOOK DESCRIPTION:\n${quickPrompt}\n\nTARGET LENGTH: ${targetWords.toLocaleString()} words\nCHAPTERS: ${chapterCount}\n${title ? `WORKING TITLE: ${title}\n` : ''}${genre ? `GENRE: ${genre}\n` : ''}`;
 
       const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
+        model: ANTHROPIC_MODEL,
         max_tokens: 2500,
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
@@ -228,7 +229,7 @@ Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown
         const userPrompt = `BOOK DESCRIPTION:\n${quickPrompt}\n\nCHAPTER ${i + 1}: ${ch.title}\nSYNOPSIS: ${ch.synopsis}\n\nFULL OUTLINE FOR CONTEXT:\n${outline.chapters.map((c, idx) => `${idx + 1}. ${c.title}: ${c.synopsis}`).join('\n')}\n\nWrite Chapter ${i + 1}.`;
 
         const response = await anthropic.messages.create({
-          model: 'claude-sonnet-4-6',
+          model: ANTHROPIC_MODEL,
           max_tokens: 4000,
           system: systemPrompt,
           messages: [{ role: 'user', content: userPrompt }],
@@ -271,7 +272,7 @@ Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown
         .update({
           status: 'complete',
           result_text: result,
-          model_used: 'claude-sonnet-4-6',
+          model_used: ANTHROPIC_MODEL,
           completed_at: new Date().toISOString(),
         })
         .eq('id', jobId);
