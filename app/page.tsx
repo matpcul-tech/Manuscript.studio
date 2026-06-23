@@ -162,6 +162,234 @@ const PLANS = [
   },
 ];
 
+function LiveDemo() {
+  const SEED = 'The diner closed at midnight, but Ray never left before one. He liked the quiet better than the tips.';
+  const [seed, setSeed] = useState(SEED);
+  const [status, setStatus] = useState<'idle' | 'running' | 'done'>('idle');
+  const [draft, setDraft] = useState('');
+  const [phase, setPhase] = useState('');
+  const [detect, setDetect] = useState<any>(null);
+  const [edit, setEdit] = useState<any>(null);
+  const [voice, setVoice] = useState<any>(null);
+  const [pacing, setPacing] = useState<any>(null);
+  const [somatic, setSomatic] = useState<any>(null);
+  const [demoError, setDemoError] = useState('');
+
+  async function runDemo() {
+    if (status === 'running') return;
+    setStatus('running');
+    setDraft('');
+    setDetect(null);
+    setEdit(null);
+    setVoice(null);
+    setPacing(null);
+    setSomatic(null);
+    setDemoError('');
+    setPhase('Drafting your opening...');
+
+    try {
+      const draftRes = await fetch('/api/studio-demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pass: 'draft', text: seed }),
+      });
+      if (!draftRes.ok) {
+        const d = await draftRes.json();
+        setDemoError(d.error || 'Something went wrong. Try again.');
+        setStatus('idle');
+        return;
+      }
+      const draftData = await draftRes.json();
+      const paragraph = draftData.paragraph || '';
+      setDraft(paragraph);
+      setPhase('Running checks...');
+
+      const runCheck = async (pass: string, setter: (d: any) => void) => {
+        try {
+          const res = await fetch('/api/studio-demo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ pass, text: paragraph }),
+          });
+          setter(await res.json());
+        } catch {}
+      };
+
+      await Promise.all([
+        runCheck('detect', setDetect),
+        runCheck('edit', setEdit),
+        runCheck('voice', setVoice),
+        runCheck('pacing', setPacing),
+        runCheck('somatic', setSomatic),
+      ]);
+
+      setPhase('');
+      setStatus('done');
+    } catch {
+      setDemoError('Something went wrong. Try again.');
+      setStatus('idle');
+    }
+  }
+
+  const gradeColor: Record<string, string> = {
+    A: 'text-[var(--green)]',
+    B: 'text-[var(--blue)]',
+    C: 'text-amber-500',
+    D: 'text-red-500',
+  };
+
+  return (
+    <div className="rounded-2xl border border-[var(--line)] shadow-[var(--shadow-xl)] bg-white overflow-hidden">
+      <div className="h-10 bg-[var(--bg-2)] border-b border-[var(--line)] flex items-center px-4 gap-1.5">
+        <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
+        <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
+        <div className="w-3 h-3 rounded-full bg-[#28ca42]" />
+        <div className="ml-4 text-xs text-[var(--ink-4)] font-mono">manuscript.studio / live demo</div>
+      </div>
+
+      <div className="p-6 md:p-8">
+        <div className="mb-6">
+          <label className="block text-[10px] font-bold tracking-[0.12em] text-[var(--ink-4)] uppercase mb-2">Your opening idea</label>
+          <textarea
+            value={seed}
+            onChange={e => setSeed(e.target.value)}
+            rows={2}
+            disabled={status === 'running'}
+            className="w-full rounded-lg border border-[var(--line)] px-4 py-3 text-sm text-[var(--ink)] font-serif leading-relaxed resize-none focus:outline-none focus:border-[var(--blue)] transition disabled:opacity-60"
+          />
+          <div className="flex items-center gap-3 mt-3">
+            <button
+              onClick={runDemo}
+              disabled={status === 'running' || !seed.trim()}
+              className="px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-sm font-semibold shadow-sm transition disabled:opacity-50"
+            >
+              {status === 'running' ? (phase || 'Working...') : status === 'done' ? 'Run Again' : 'Run Demo'}
+            </button>
+            {status === 'running' && (
+              <span className="text-xs text-[var(--ink-4)] animate-pulse">{phase}</span>
+            )}
+          </div>
+          {demoError && <p className="mt-2 text-xs text-red-500">{demoError}</p>}
+        </div>
+
+        {draft && (
+          <div className="mb-5 p-5 rounded-xl bg-[var(--bg-2)] border border-[var(--line)]">
+            <div className="text-[10px] font-bold tracking-[0.12em] text-[var(--blue-deep)] uppercase mb-3">Draft</div>
+            <p className="font-serif text-[15px] leading-[1.8] text-[var(--ink-2)]">{draft}</p>
+          </div>
+        )}
+
+        {draft && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="p-4 rounded-xl border border-[var(--line)] bg-white">
+              <div className="text-[10px] font-bold tracking-[0.12em] text-[var(--ink-4)] uppercase mb-2">AI Detection Score</div>
+              {detect ? (
+                <>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className={`font-display text-3xl font-bold ${gradeColor[detect.grade] || 'text-[var(--ink)]'}`}>{detect.grade}</span>
+                    <span className="text-xs text-[var(--ink-3)] leading-snug">{detect.headline}</span>
+                  </div>
+                  {detect.tells?.slice(0, 2).map((t: string, i: number) => (
+                    <p key={i} className="text-[11px] text-[var(--ink-4)] italic mb-0.5">"{t}"</p>
+                  ))}
+                </>
+              ) : (
+                <span className="text-xs text-[var(--ink-4)] animate-pulse">Analyzing...</span>
+              )}
+            </div>
+
+            <div className="p-4 rounded-xl border border-[var(--line)] bg-white">
+              <div className="text-[10px] font-bold tracking-[0.12em] text-[var(--ink-4)] uppercase mb-2">Line Edit</div>
+              {edit ? (
+                <>
+                  {edit.edits?.slice(0, 2).map((e: any, i: number) => (
+                    <div key={i} className="mb-2 last:mb-0">
+                      <p className="text-[11px] text-red-400 line-through mb-0.5">"{e.original}"</p>
+                      <p className="text-[11px] text-[var(--green)]">"{e.revision}"</p>
+                    </div>
+                  ))}
+                  {edit.note && <p className="text-[10px] text-[var(--ink-4)] mt-2 italic">{edit.note}</p>}
+                </>
+              ) : (
+                <span className="text-xs text-[var(--ink-4)] animate-pulse">Analyzing...</span>
+              )}
+            </div>
+
+            <div className="p-4 rounded-xl border border-[var(--line)] bg-white">
+              <div className="text-[10px] font-bold tracking-[0.12em] text-[var(--ink-4)] uppercase mb-2">Voice Consistency</div>
+              {voice ? (
+                voice.findings?.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {voice.findings.slice(0, 2).map((f: any, i: number) => (
+                      <li key={i} className="text-[11px]">
+                        <span className="text-[var(--ink-3)] italic">"{f.phrase}"</span>
+                        <span className="text-[var(--ink-4)]"> → </span>
+                        <span className="text-[var(--blue-deep)]">"{f.fix}"</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-[11px] text-[var(--green)]">Voice is consistent.</p>
+                )
+              ) : (
+                <span className="text-xs text-[var(--ink-4)] animate-pulse">Analyzing...</span>
+              )}
+            </div>
+
+            <div className="p-4 rounded-xl border border-[var(--line)] bg-white">
+              <div className="text-[10px] font-bold tracking-[0.12em] text-[var(--ink-4)] uppercase mb-2">Pacing</div>
+              {pacing ? (
+                <>
+                  {pacing.read && <p className="text-[11px] text-[var(--ink-3)] mb-2">{pacing.read}</p>}
+                  {pacing.findings?.slice(0, 2).map((f: any, i: number) => (
+                    <p key={i} className="text-[11px] text-[var(--ink-4)] italic mb-0.5">"{f.phrase}"</p>
+                  ))}
+                </>
+              ) : (
+                <span className="text-xs text-[var(--ink-4)] animate-pulse">Analyzing...</span>
+              )}
+            </div>
+
+            <div className="p-4 rounded-xl border border-[var(--line)] bg-white sm:col-span-2">
+              <div className="text-[10px] font-bold tracking-[0.12em] text-[var(--ink-4)] uppercase mb-2">Somatic Interiority</div>
+              {somatic ? (
+                <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+                  <div className="flex-shrink-0">
+                    <span className={`font-display text-4xl font-bold ${(somatic.score ?? 0) >= 70 ? 'text-[var(--green)]' : (somatic.score ?? 0) >= 40 ? 'text-amber-500' : 'text-red-400'}`}>
+                      {somatic.score ?? '?'}
+                    </span>
+                    <span className="text-xs text-[var(--ink-4)] ml-1">/100</span>
+                  </div>
+                  <div>
+                    {somatic.read && <p className="text-[11px] text-[var(--ink-3)] mb-2">{somatic.read}</p>}
+                    {somatic.lift && <p className="text-[11px] font-serif text-[var(--ink-2)] leading-relaxed italic">{somatic.lift}</p>}
+                  </div>
+                </div>
+              ) : (
+                <span className="text-xs text-[var(--ink-4)] animate-pulse">Analyzing...</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {status === 'done' && (
+          <div className="mt-5 p-5 rounded-xl bg-[var(--blue-soft)] border border-[var(--blue)]/20 text-center">
+            <p className="text-sm font-semibold text-[var(--blue-deep)] mb-3">
+              This is just the demo. The full studio remembers your voice across every chapter.
+            </p>
+            <Link
+              href="/login"
+              className="inline-block px-6 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-sm font-semibold shadow-sm transition"
+            >
+              Start Writing Free
+            </Link>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   const router = useRouter();
   const [checkoutLoading, setCheckoutLoading] = useState('');
@@ -221,37 +449,11 @@ export default function LandingPage() {
             >
               Start Writing Free
             </Link>
+            <p className="text-xs text-[var(--ink-4)] mt-4">Your manuscripts remain yours. We never train on your work.</p>
           </div>
 
-          {/* product preview */}
-          <div className="mt-20 rounded-2xl border border-[var(--line)] shadow-[var(--shadow-xl)] bg-white overflow-hidden">
-            <div className="h-10 bg-[var(--bg-2)] border-b border-[var(--line)] flex items-center px-4 gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-[#ff5f57]" />
-              <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-              <div className="w-3 h-3 rounded-full bg-[#28ca42]" />
-              <div className="ml-4 text-xs text-[var(--ink-4)] font-mono">manuscript-studio-os.com</div>
-            </div>
-            <div className="grid grid-cols-12 min-h-[380px]">
-              <div className="col-span-3 bg-[var(--bg-2)] border-r border-[var(--line)] p-4">
-                <div className="text-[10px] font-semibold tracking-wider text-[var(--ink-4)] mb-3">MANUSCRIPT</div>
-                <div className="space-y-1">
-                  <div className="px-2 py-1.5 rounded-md text-xs font-semibold bg-[var(--blue-soft)] text-[var(--blue-deep)]">Chapter 1: Opening</div>
-                  <div className="pl-4 py-1 text-xs text-[var(--ink-3)]">Scene 1</div>
-                  <div className="pl-4 py-1 text-xs text-[var(--ink-3)]">Scene 2</div>
-                  <div className="px-2 py-1.5 rounded-md text-xs font-medium text-[var(--ink-2)]">Chapter 2</div>
-                  <div className="px-2 py-1.5 rounded-md text-xs font-medium text-[var(--ink-2)]">Chapter 3</div>
-                </div>
-              </div>
-              <div className="col-span-9 p-10">
-                <div className="font-display text-2xl font-semibold mb-1">The Morning Before</div>
-                <div className="text-[10px] font-semibold tracking-wider text-[var(--ink-4)] mb-6">CHAPTER 1</div>
-                <div className="font-serif text-[15px] leading-[1.8] text-[var(--ink-2)] space-y-3">
-                  <p>The cleaning crew moved through the floor like water. Slow at first, near the wall, then faster as they reached the open space between the slot machines and the cage.</p>
-                  <p>Marcus watched from the second-floor balcony. He had been the supervisor here for nine years. He knew the way the building breathed before it filled with people.</p>
-                  <p className="text-[var(--ink-4)] italic">[Continuing in your voice...]</p>
-                </div>
-              </div>
-            </div>
+          <div className="mt-16">
+            <LiveDemo />
           </div>
         </div>
       </section>
@@ -310,6 +512,38 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* PIPELINE */}
+      <section className="py-24 bg-[var(--ink)]">
+        <div className="max-w-4xl mx-auto px-6">
+          <div className="text-center mb-12">
+            <div className="text-xs font-bold tracking-[0.15em] text-[var(--amber)] uppercase mb-3">The pipeline</div>
+            <h2 className="font-display text-4xl md:text-5xl font-semibold leading-tight text-white">
+              Blank page to live on Amazon. One pipeline.
+            </h2>
+            <p className="text-base text-white/60 mt-3">
+              Write and publish from your phone. Native iOS and Android, not just a website.
+            </p>
+          </div>
+          <ol className="space-y-0">
+            {[
+              { n: '01', title: 'Setup', body: 'Connect your voice, describe your book, set genre and target length.' },
+              { n: '02', title: 'Voice', body: 'Upload a few pages of past writing. The studio builds a profile of how you actually write.' },
+              { n: '03', title: 'Write', body: 'Quick Draft generates a full chapter outline and opens the manuscript in your voice.' },
+              { n: '04', title: 'Edit', body: 'Sovereign Prose Validator scores AI detection, voice consistency, pacing, and somatic depth. One-click rewrites for every finding.' },
+              { n: '05', title: 'Cover', body: 'Live cover builder. Choose typography, adjust size, pick a color preset. Export 1600x2560 PNG for KDP.' },
+              { n: '06', title: 'Publish', body: 'KDP Launch Walkthrough with generated description, backend keywords, and category suggestions.' },
+              { n: '07', title: 'Launch', body: 'Export KDP-ready .docx and .epub. Copy and paste your listing. Go live.' },
+            ].map(stage => (
+              <li key={stage.n} className="flex gap-5 items-start py-5 border-b border-white/10 last:border-0">
+                <span className="font-mono text-[11px] font-bold text-[var(--amber)] w-7 flex-shrink-0 pt-0.5">{stage.n}</span>
+                <span className="font-display text-base font-semibold text-white w-20 flex-shrink-0">{stage.title}</span>
+                <span className="text-sm text-white/60 leading-relaxed">{stage.body}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
       {/* PRICING */}
       <section id="pricing" className="py-24 bg-[var(--bg-2)]">
         <div className="max-w-5xl mx-auto px-6">
@@ -360,50 +594,19 @@ export default function LandingPage() {
             ))}
           </div>
 
-          <div className="text-center mt-8 text-sm text-[var(--ink-4)]">
-            Atticus is $147 one-time. Sudowrite Pro is $22/mo. Vellum is $200 and Mac-only. We do everything they do, plus voice-trained writing.
+          <div className="text-center mt-8 text-sm text-[var(--ink-4)] max-w-2xl mx-auto">
+            <span className="font-semibold text-[var(--ink-2)]">The others do one piece. This does the whole book.</span>{' '}
+            Sudowrite writes prose but stops there. Atticus formats but does not write. Vellum designs covers and is Mac-only. Manuscript Studio handles all of it, in a single pipeline, in your voice.
           </div>
         </div>
       </section>
 
-      {/* SOCIAL PROOF */}
-      <section className="py-24">
-        <div className="max-w-5xl mx-auto px-6">
-          <div className="text-center mb-14">
-            <div className="text-xs font-bold tracking-[0.15em] text-[var(--blue-deep)] uppercase mb-3">Authors</div>
-            <h2 className="font-display text-4xl md:text-5xl font-semibold leading-tight">
-              Written by real people, in their actual voices.
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {[
-              { initials: 'S.M.', label: 'Romance author, 14 titles on Amazon' },
-              { initials: 'D.R.', label: 'Thriller writer, first-time KDP publisher' },
-              { initials: 'P.K.', label: 'Nonfiction author, business books' },
-            ].map(t => (
-              <div key={t.initials} className="p-7 rounded-2xl border border-[var(--line)] bg-white">
-                <div className="flex gap-1 mb-5">
-                  {[1,2,3,4,5].map(i => (
-                    <svg key={i} viewBox="0 0 16 16" className="w-4 h-4 fill-[var(--amber)]">
-                      <path d="M8 1l1.8 3.6 4 .6-2.9 2.8.7 4-3.6-1.9-3.6 1.9.7-4L2.2 5.2l4-.6z" />
-                    </svg>
-                  ))}
-                </div>
-                {/* Quote placeholder -- swap in real testimonial text */}
-                <p className="text-sm text-[var(--ink-3)] leading-relaxed italic mb-5">
-                  "Testimonial coming soon."
-                </p>
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-[var(--bg-3)] border border-[var(--line)] flex items-center justify-center text-xs font-bold text-[var(--ink-3)]">{t.initials}</div>
-                  <div>
-                    <div className="text-sm font-semibold text-[var(--ink-2)]">{t.initials}</div>
-                    <div className="text-xs text-[var(--ink-4)]">{t.label}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* ORIGIN */}
+      <section className="py-14 border-t border-[var(--line)]">
+        <div className="max-w-3xl mx-auto px-6 text-center">
+          <p className="text-base text-[var(--ink-3)] leading-relaxed">
+            Built by an indie author who self-publishes fiction.
+          </p>
         </div>
       </section>
 
