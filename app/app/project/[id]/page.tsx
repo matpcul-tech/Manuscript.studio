@@ -2660,6 +2660,169 @@ function LaunchStage({ data, updateData, toast, plan }: any) {
   const isPackLocked = (id: string) => PACK_TABS.includes(id) && plan === 'free';
   const isExportLocked = (id: string) => id === 'export' && plan !== 'studio';
 
+  type TabId = 'backmatter' | 'description' | 'backcover' | 'metadata';
+  type TabSt = 'idle' | 'generating' | 'ready' | 'failed';
+
+  const [tabStatus, setTabStatus] = useState<Record<TabId, TabSt>>({
+    backmatter: (data.launchOutputs?.backMatterText) ? 'ready' : 'idle',
+    description: (data.descriptionVariants?.variantA?.html) ? 'ready' : 'idle',
+    backcover: (data.launchOutputs?.backCoverText) ? 'ready' : 'idle',
+    metadata: (data.launchOutputs?.metadataText) ? 'ready' : 'idle',
+  });
+  const autoGenStarted = useRef(false);
+  const latestData = useRef(data);
+  latestData.current = data;
+  const latestUpdateData = useRef(updateData);
+  latestUpdateData.current = updateData;
+
+  // Sync tabStatus when tabs are generated manually
+  useEffect(() => {
+    const lo = data.launchOutputs || {};
+    const dv = data.descriptionVariants || {};
+    setTabStatus(prev => {
+      const next = { ...prev };
+      if (lo.backMatterText && prev.backmatter !== 'generating') next.backmatter = 'ready';
+      if (dv.variantA?.html && prev.description !== 'generating') next.description = 'ready';
+      if (lo.backCoverText && prev.backcover !== 'generating') next.backcover = 'ready';
+      if (lo.metadataText && prev.metadata !== 'generating') next.metadata = 'ready';
+      return next;
+    });
+  }, [data.launchOutputs, data.descriptionVariants]);
+
+  async function genBM() {
+    const d = latestData.current;
+    setTabStatus(p => ({ ...p, backmatter: 'generating' }));
+    try {
+      const r = await callEngine({
+        task: 'back-matter',
+        userPrompt: `Write complete back matter for a ${d.genre} book titled "${d.title}" by ${d.author}.\n\nAuthor bio: ${d.bio || 'Not provided.'}\nOther books by this author: None listed.\n\nGenerate these sections in order:\n1. About the Author (3 to 4 paragraphs, warm and personal, third person)\n2. A Note from the Author (1 to 2 paragraphs, heartfelt message to the reader)\n3. Enjoyed this book? (2 to 3 sentences, warm request for a review)\n4. Also By ${d.author || 'the Author'} (list: none listed)\n5. Acknowledgments (1 to 2 paragraphs thanking key people)\n\nWrite in the author's voice. No em dashes. No AI phrases.`,
+        systemOverride: 'You write professional back matter for independently published books. Match the author voice. No em dashes. No AI vocabulary.',
+        maxTokens: 2000,
+      });
+      latestUpdateData.current((pd: ProjectData) => ({ ...pd, launchOutputs: { ...(pd.launchOutputs || {}), backMatterText: r } }));
+      setTabStatus(p => ({ ...p, backmatter: 'ready' }));
+    } catch {
+      setTabStatus(p => ({ ...p, backmatter: 'failed' }));
+    }
+  }
+
+  async function genMeta() {
+    const d = latestData.current;
+    const kws = (d.metadataPack?.keywords?.length === 7 ? d.metadataPack.keywords : ['', '', '', '', '', '', '']) as string[];
+    setTabStatus(p => ({ ...p, metadata: 'generating' }));
+    try {
+      const r = await callEngine({
+        task: 'metadata-pack',
+        userPrompt: `Generate a complete KDP metadata pack.\n\nTitle: ${d.title}\nSubtitle: ${d.subtitle || 'None'}\nAuthor: ${d.author}\nGenre: ${d.genre}\nSubgenre: Not specified\nTarget audience: General adult readers\nKeywords entered: ${kws.filter(Boolean).join(', ') || 'None'}\n\nRespond with EXACTLY this format:\n===BISAC===\n[Top 3 BISAC suggestions, one per line. Format: CODE -- Full Category Path]\n===KEYWORDS===\n[7 optimized KDP keyword strings, one per line, 2 to 4 words each]\n===50WORD===\n[Book description in 50 words or fewer]\n===100WORD===\n[Book description in 100 words or fewer]`,
+        systemOverride: 'You are a KDP metadata expert. Output clean, formatted metadata. No em dashes. No filler text.',
+        maxTokens: 900,
+      });
+      const bisac = (r.match(/===BISAC===([\s\S]*?)(?:===KEYWORDS===|$)/) || [])[1]?.trim() || '';
+      const kwStr = (r.match(/===KEYWORDS===([\s\S]*?)(?:===50WORD===|$)/) || [])[1]?.trim() || '';
+      const desc50 = (r.match(/===50WORD===([\s\S]*?)(?:===100WORD===|$)/) || [])[1]?.trim() || '';
+      const desc100 = (r.match(/===100WORD===([\s\S]*?)$/) || [])[1]?.trim() || '';
+      const formatted = [
+        `BISAC CATEGORIES\n${'='.repeat(18)}\n${bisac}`,
+        `KEYWORD STRINGS\n${'='.repeat(18)}\n${kwStr}`,
+        `50-WORD DESCRIPTION\n${'='.repeat(18)}\n${desc50}`,
+        `100-WORD DESCRIPTION\n${'='.repeat(18)}\n${desc100}`,
+      ].join('\n\n');
+      const aiKws = kwStr.split('\n').filter(Boolean).slice(0, 7);
+      const merged = kws.map((k: string, i: number) => k || aiKws[i] || '');
+      latestUpdateData.current((pd: ProjectData) => ({
+        ...pd,
+        metadataPack: { ...pd.metadataPack, keywords: merged },
+        launchOutputs: { ...(pd.launchOutputs || {}), metadataText: formatted },
+      }));
+      setTabStatus(p => ({ ...p, metadata: 'ready' }));
+    } catch {
+      setTabStatus(p => ({ ...p, metadata: 'failed' }));
+    }
+  }
+
+  async function genDesc(synopsis: string) {
+    const d = latestData.current;
+    setTabStatus(p => ({ ...p, description: 'generating' }));
+    try {
+      const r = await callEngine({
+        task: 'kdp-description',
+        userPrompt: `Write two Amazon KDP descriptions for "${d.title}" by ${d.author}.\n\nGenre: ${d.genre}\nTone: engaging\nSynopsis: ${synopsis}\nTarget reader: general adult readers\n\nRespond with EXACTLY this format:\n===LONG===\n[Long form, 500 to 600 words. Use <b>bold</b> for key phrases and the protagonist name. Strong hook in the first sentence. No em dashes. End with a call to action.]\n===SHORT===\n[Short form, 120 to 150 words. Punchy hook. No em dashes.]`,
+        systemOverride: 'You write professional Amazon KDP book descriptions. Use <b> tags for bold text. No em dashes. Strong opening hook. No spoilers.',
+        maxTokens: 1600,
+      });
+      const lm = r.match(/===LONG===([\s\S]*?)(?:===SHORT===|$)/);
+      const sm = r.match(/===SHORT===([\s\S]*?)$/);
+      const lf = lm ? lm[1].trim() : r;
+      const sf = sm ? sm[1].trim() : '';
+      latestUpdateData.current((pd: ProjectData) => ({
+        ...pd,
+        descriptionVariants: {
+          ...pd.descriptionVariants,
+          variantA: { html: lf, plain: lf.replace(/<[^>]+>/g, '') },
+          variantB: { html: sf, plain: sf.replace(/<[^>]+>/g, '') },
+          selected: 'a',
+        },
+      }));
+      setTabStatus(p => ({ ...p, description: 'ready' }));
+    } catch {
+      setTabStatus(p => ({ ...p, description: 'failed' }));
+    }
+  }
+
+  async function genBC(synopsis: string) {
+    const d = latestData.current;
+    setTabStatus(p => ({ ...p, backcover: 'generating' }));
+    try {
+      const r = await callEngine({
+        task: 'back-cover',
+        userPrompt: `Write back cover copy for the ${d.genre} book "${d.title}" by ${d.author}.\n\nSynopsis: ${synopsis}\nAuthor bio one-liner: ${(d.bio || '').split('.')[0] || 'Not provided.'}\n\nRespond with EXACTLY this format:\n===HOOK===\n[One punchy hook line, 10 to 20 words. No em dashes.]\n===BODY===\n[Three paragraphs, 60 to 80 words each. Raise the stakes. No spoilers. No em dashes.]\n===TAGLINE===\n[One closing tagline, 8 to 15 words]\n===AUTHOR===\n[One sentence author bio]`,
+        systemOverride: 'You write punchy, professional back cover copy for independently published books. No em dashes. No spoilers. Strong opening hook.',
+        maxTokens: 800,
+      });
+      const hook = (r.match(/===HOOK===([\s\S]*?)(?:===BODY===|$)/) || [])[1]?.trim() || '';
+      const body = (r.match(/===BODY===([\s\S]*?)(?:===TAGLINE===|$)/) || [])[1]?.trim() || '';
+      const tagline = (r.match(/===TAGLINE===([\s\S]*?)(?:===AUTHOR===|$)/) || [])[1]?.trim() || '';
+      const authorLine = (r.match(/===AUTHOR===([\s\S]*?)$/) || [])[1]?.trim() || '';
+      const composed = [hook, body, tagline, authorLine].filter(Boolean).join('\n\n');
+      latestUpdateData.current((pd: ProjectData) => ({
+        ...pd,
+        backCover: { ...pd.backCover, hookHeadline: hook, body, pullQuote: tagline, authorBioOneLine: authorLine || (d.bio || '').split('.')[0] || '', genreTag: d.genre },
+        launchOutputs: { ...(pd.launchOutputs || {}), backCoverText: composed },
+      }));
+      setTabStatus(p => ({ ...p, backcover: 'ready' }));
+    } catch {
+      setTabStatus(p => ({ ...p, backcover: 'failed' }));
+    }
+  }
+
+  // Run auto-gen for missing tabs once plan is known (plan loads async from Supabase)
+  useEffect(() => {
+    if (plan === 'free') return;
+    if (autoGenStarted.current) return;
+    autoGenStarted.current = true;
+    const lo = data.launchOutputs || {};
+    const dv = data.descriptionVariants || {};
+    const synopsis = data.synopsis || '';
+    const jobs: Promise<void>[] = [];
+    if (!lo.backMatterText) jobs.push(genBM());
+    if (!lo.metadataText) jobs.push(genMeta());
+    if (!dv.variantA?.html && synopsis) jobs.push(genDesc(synopsis));
+    if (!lo.backCoverText && synopsis) jobs.push(genBC(synopsis));
+    if (jobs.length > 0) Promise.allSettled(jobs);
+  }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function retryTab(id: TabId) {
+    const synopsis = data.synopsis || '';
+    if ((id === 'description' || id === 'backcover') && !synopsis) {
+      toast('Enter a synopsis in that tab first, then retry.', 'error');
+      return;
+    }
+    if (id === 'backmatter') genBM();
+    else if (id === 'metadata') genMeta();
+    else if (id === 'description') genDesc(synopsis);
+    else if (id === 'backcover') genBC(synopsis);
+  }
+
   function setSub(id: string) {
     updateData((d: ProjectData) => ({ ...d, launchSubsection: id }));
   }
@@ -2722,7 +2885,7 @@ function LaunchStage({ data, updateData, toast, plan }: any) {
         {activeSubId === 'description' && (isPackLocked('description') ? <UpgradeGate feature="KDP Description Generator" required="pro" /> : <KDPDescriptionTab data={data} updateData={updateData} toast={toast} />)}
         {activeSubId === 'backcover' && (isPackLocked('backcover') ? <UpgradeGate feature="Back Cover Copy" required="pro" /> : <BackCoverTab data={data} updateData={updateData} toast={toast} />)}
         {activeSubId === 'metadata' && (isPackLocked('metadata') ? <UpgradeGate feature="Metadata Pack" required="pro" /> : <MetadataPackTab data={data} updateData={updateData} toast={toast} />)}
-        {activeSubId === 'export' && (isExportLocked('export') ? <UpgradeGate feature="Export All Zip" required="studio" /> : <ExportAllTab data={data} toast={toast} />)}
+        {activeSubId === 'export' && (isExportLocked('export') ? <UpgradeGate feature="Export All Zip" required="studio" /> : <ExportAllTab data={data} toast={toast} tabStatus={tabStatus} onRetry={retryTab} />)}
         {activeSubId === 'kdpupload' && <KDPChecklistTab data={data} toast={toast} />}
       </div>
     </div>
@@ -3073,7 +3236,7 @@ Write in the author's voice. No em dashes. No AI phrases.`,
 /* ==================== KDP DESCRIPTION TAB ==================== */
 function KDPDescriptionTab({ data, updateData, toast }: any) {
   const dv = data.descriptionVariants || {};
-  const [synopsis, setSynopsis] = useState('');
+  const [synopsis, setSynopsis] = useState(data.synopsis || '');
   const [targetReader, setTargetReader] = useState('');
   const [tone, setTone] = useState('thriller');
   const [generating, setGenerating] = useState(false);
@@ -3155,7 +3318,7 @@ Respond with EXACTLY this format:
               <Field label="Synopsis">
                 <textarea
                   value={synopsis}
-                  onChange={e => setSynopsis(e.target.value)}
+                  onChange={e => { setSynopsis(e.target.value); updateData((d: ProjectData) => ({ ...d, synopsis: e.target.value })); }}
                   className={textareaCls + ' min-h-[120px]'}
                   placeholder="Who is the protagonist, what do they want, what stands in their way? No spoilers."
                 />
@@ -3240,7 +3403,7 @@ function KDPOutputCard({ label, badge, content, onCopy, onChange, placeholder }:
 function BackCoverTab({ data, updateData, toast }: any) {
   const lo = data.launchOutputs || {};
   const bc = data.backCover || {};
-  const [synopsis, setSynopsis] = useState('');
+  const [synopsis, setSynopsis] = useState(data.synopsis || '');
   const [authorBioLine, setAuthorBioLine] = useState(bc.authorBioOneLine || '');
   const [generating, setGenerating] = useState(false);
   const output = lo.backCoverText || '';
@@ -3323,7 +3486,7 @@ Respond with EXACTLY this format:
             <Field label="Synopsis">
               <textarea
                 value={synopsis}
-                onChange={e => setSynopsis(e.target.value)}
+                onChange={e => { setSynopsis(e.target.value); updateData((d: ProjectData) => ({ ...d, synopsis: e.target.value })); }}
                 className={textareaCls + ' min-h-[120px]'}
                 placeholder="Who is the protagonist, what do they want, what stands in their way?"
               />
@@ -3537,19 +3700,30 @@ Respond with EXACTLY this format:
 }
 
 /* ==================== EXPORT ALL TAB ==================== */
-function ExportAllTab({ data, toast }: any) {
+function ExportAllTab({ data, toast, tabStatus, onRetry }: any) {
   const lo = data.launchOutputs || {};
   const dv = data.descriptionVariants || {};
-  const bc = data.backCover || {};
   const [exporting, setExporting] = useState(false);
 
-  const readiness = [
-    { label: 'Back Matter', ready: !!lo.backMatterText },
-    { label: 'KDP Description', ready: !!(dv.variantA?.html) },
-    { label: 'Back Cover', ready: !!lo.backCoverText },
-    { label: 'Metadata Pack', ready: !!lo.metadataText },
+  const TAB_ROWS: { id: string; label: string }[] = [
+    { id: 'backmatter', label: 'Back Matter' },
+    { id: 'description', label: 'KDP Description' },
+    { id: 'backcover', label: 'Back Cover' },
+    { id: 'metadata', label: 'Metadata Pack' },
   ];
-  const allReady = readiness.every(r => r.ready);
+
+  // Derive status: prefer tabStatus from parent if available, fall back to data check
+  function getStatus(id: string): string {
+    if (tabStatus?.[id]) return tabStatus[id];
+    if (id === 'backmatter') return lo.backMatterText ? 'ready' : 'idle';
+    if (id === 'description') return dv.variantA?.html ? 'ready' : 'idle';
+    if (id === 'backcover') return lo.backCoverText ? 'ready' : 'idle';
+    if (id === 'metadata') return lo.metadataText ? 'ready' : 'idle';
+    return 'idle';
+  }
+
+  const allReady = TAB_ROWS.every(t => getStatus(t.id) === 'ready');
+  const anyGenerating = TAB_ROWS.some(t => getStatus(t.id) === 'generating');
 
   async function exportAll() {
     setExporting(true);
@@ -3592,22 +3766,51 @@ function ExportAllTab({ data, toast }: any) {
         </div>
         <Section title="Tab status">
           <div className="space-y-1">
-            {readiness.map(r => (
-              <div key={r.label} className="flex items-center gap-3 py-1.5">
-                {r.ready ? (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5" className="w-5 h-5 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
-                ) : (
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 flex-shrink-0 text-[var(--ink-4)]"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                )}
-                <span className={`text-sm ${r.ready ? 'text-[var(--ink-2)]' : 'text-[var(--ink-3)]'}`}>{r.label}</span>
-                <span className={`ml-auto text-xs font-bold ${r.ready ? 'text-[var(--green)]' : 'text-[var(--ink-4)]'}`}>{r.ready ? 'Ready' : 'Not generated'}</span>
-              </div>
-            ))}
+            {TAB_ROWS.map(t => {
+              const st = getStatus(t.id);
+              return (
+                <div key={t.id} className="flex items-center gap-3 py-1.5">
+                  {st === 'ready' ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5" className="w-5 h-5 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                  ) : st === 'generating' ? (
+                    <span className="w-5 h-5 flex-shrink-0 border-2 border-[var(--blue)]/25 border-t-[var(--blue)] rounded-full animate-spin inline-block" />
+                  ) : st === 'failed' ? (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" className="w-5 h-5 flex-shrink-0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  ) : (
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5 flex-shrink-0 text-[var(--ink-4)]"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  )}
+                  <span className={`text-sm ${st === 'ready' ? 'text-[var(--ink-2)]' : 'text-[var(--ink-3)]'}`}>{t.label}</span>
+                  <span className={`ml-auto text-xs font-bold flex items-center gap-2 ${
+                    st === 'ready' ? 'text-[var(--green)]' :
+                    st === 'generating' ? 'text-[var(--blue-deep)]' :
+                    st === 'failed' ? 'text-[var(--red)]' : 'text-[var(--ink-4)]'
+                  }`}>
+                    {st === 'ready' ? 'Ready' :
+                     st === 'generating' ? 'Generating...' :
+                     st === 'failed' ? (
+                       <>
+                         <span>Failed</span>
+                         {onRetry && (
+                           <button
+                             onClick={() => onRetry(t.id)}
+                             className="px-2 py-0.5 rounded bg-[var(--red)]/10 text-[var(--red)] text-xs font-semibold hover:bg-[var(--red)]/20 transition"
+                           >
+                             Retry
+                           </button>
+                         )}
+                       </>
+                     ) : 'Not generated'}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </Section>
         {!allReady && (
           <p className="text-sm text-[var(--ink-3)] bg-[var(--bg-3)] rounded-lg px-4 py-3">
-            Generate content in all four tabs before exporting the bundle.
+            {anyGenerating
+              ? 'Generating in the background. Export unlocks when all four are ready.'
+              : 'All four tabs must be generated before the export is available.'}
           </p>
         )}
         <button

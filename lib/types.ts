@@ -25,6 +25,7 @@ export type ProjectData = {
   isbn: string;
   dedication: string;
   bio: string;
+  synopsis: string;
   // voice
   voiceSample: string;
   voiceNotes: string;
@@ -119,6 +120,7 @@ export function defaultProjectData(): ProjectData {
     isbn: '',
     dedication: '',
     bio: '',
+    synopsis: '',
     voiceSample: '',
     voiceNotes: '',
     voiceProfile: '',
