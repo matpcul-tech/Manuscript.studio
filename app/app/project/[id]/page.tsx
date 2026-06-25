@@ -2827,21 +2827,17 @@ function LaunchStage({ data, updateData, toast, plan }: any) {
     autoGenStarted.current = true;
     const lo = data.launchOutputs || {};
     const dv = data.descriptionVariants || {};
-    const synopsis = data.synopsis || '';
+    const synopsis = data.synopsis || data.quickPrompt || '';
     const jobs: Promise<void>[] = [];
     if (!lo.backMatterText) jobs.push(genBM());
     if (!lo.metadataText) jobs.push(genMeta());
-    if (!dv.variantA?.html && synopsis) jobs.push(genDesc(synopsis));
-    if (!lo.backCoverText && synopsis) jobs.push(genBC(synopsis));
+    if (!dv.variantA?.html) jobs.push(genDesc(synopsis));
+    if (!lo.backCoverText) jobs.push(genBC(synopsis));
     if (jobs.length > 0) Promise.allSettled(jobs);
   }, [plan]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function retryTab(id: TabId) {
-    const synopsis = data.synopsis || '';
-    if ((id === 'description' || id === 'backcover') && !synopsis) {
-      toast('Enter a synopsis in that tab first, then retry.', 'error');
-      return;
-    }
+    const synopsis = data.synopsis || data.quickPrompt || '';
     if (id === 'backmatter') genBM();
     else if (id === 'metadata') genMeta();
     else if (id === 'description') genDesc(synopsis);
@@ -3168,17 +3164,6 @@ Write in the author's voice. No em dashes. No AI phrases.`,
     }
   }
 
-  function exportDocxLocal() {
-    if (!text) { toast('Generate back matter first.', 'error'); return; }
-    const esc = (s: string) => s.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[m]);
-    const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Back Matter</title><style>body{font-family:Garamond,Georgia,serif;font-size:11pt;line-height:1.5;}p{text-indent:.25in;margin:0;}p.first{text-indent:0;}</style></head><body>${text.split('\n\n').map(p => `<p class="first">${esc(p)}</p>`).join('\n')}</body></html>`;
-    const blob = new Blob([html], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'back-matter.doc';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
   return (
     <div className="p-8">
       <div className="max-w-[1280px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -3222,14 +3207,7 @@ Write in the author's voice. No em dashes. No AI phrases.`,
           </button>
         </div>
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="font-display text-lg font-semibold">Generated output</div>
-            {text && (
-              <button onClick={exportDocxLocal} className="px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition">
-                Export .docx
-              </button>
-            )}
-          </div>
+          <div className="font-display text-lg font-semibold">Generated output</div>
           {text ? (
             <textarea
               value={text}
@@ -3246,11 +3224,19 @@ Write in the author's voice. No em dashes. No AI phrases.`,
 }
 
 /* ==================== KDP DESCRIPTION TAB ==================== */
+function genreToTone(genre: string): string {
+  const g = (genre || '').toLowerCase();
+  if (g.includes('thriller') || g.includes('mystery') || g.includes('crime') || g.includes('horror') || g.includes('suspense')) return 'thriller';
+  if (g.includes('cozy')) return 'cozy';
+  if (g.includes('romance') || g.includes('contemporary')) return 'romance';
+  if (g.includes('inspir') || g.includes('self-help') || g.includes('nonfiction') || g.includes('memoir')) return 'inspirational';
+  return 'literary';
+}
+
 function KDPDescriptionTab({ data, updateData, toast }: any) {
   const dv = data.descriptionVariants || {};
-  const [synopsis, setSynopsis] = useState(data.synopsis || '');
-  const [targetReader, setTargetReader] = useState('');
-  const [tone, setTone] = useState('thriller');
+  const synopsis = data.synopsis || data.quickPrompt || '';
+  const [tone, setTone] = useState(() => genreToTone(data.genre));
   const [generating, setGenerating] = useState(false);
   const [longForm, setLongForm] = useState(dv.variantA?.html || '');
   const [shortForm, setShortForm] = useState(dv.variantB?.html || '');
@@ -3268,7 +3254,6 @@ function KDPDescriptionTab({ data, updateData, toast }: any) {
   }
 
   async function generate() {
-    if (!synopsis) { toast('Enter a synopsis first.', 'error'); return; }
     setGenerating(true);
     try {
       const result = await callEngine({
@@ -3277,8 +3262,8 @@ function KDPDescriptionTab({ data, updateData, toast }: any) {
 
 Genre: ${data.genre}
 Tone: ${tone}
-Synopsis: ${synopsis}
-Target reader: ${targetReader || 'general adult readers'}
+Synopsis: ${synopsis || 'Not provided.'}
+Target reader: general ${data.genre || 'fiction'} readers
 
 Respond with EXACTLY this format:
 ===LONG===
@@ -3302,13 +3287,6 @@ Respond with EXACTLY this format:
     }
   }
 
-  function copyText(text: string, label: string) {
-    navigator.clipboard.writeText(text).then(
-      () => toast(`${label} copied.`, 'success'),
-      () => toast('Could not copy. Select the text manually.', 'error')
-    );
-  }
-
   return (
     <div className="p-8">
       <div className="max-w-[1280px] mx-auto space-y-6">
@@ -3318,48 +3296,23 @@ Respond with EXACTLY this format:
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-[380px_1fr] gap-6">
           <div className="space-y-4">
-            <Section title="Book info">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Title">
-                  <input value={data.title} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
-                </Field>
-                <Field label="Genre">
-                  <input value={data.genre} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
-                </Field>
-              </div>
-              <Field label="Synopsis">
-                <textarea
-                  value={synopsis}
-                  onChange={e => { setSynopsis(e.target.value); updateData((d: ProjectData) => ({ ...d, synopsis: e.target.value })); }}
-                  className={textareaCls + ' min-h-[120px]'}
-                  placeholder="Who is the protagonist, what do they want, what stands in their way? No spoilers."
-                />
-              </Field>
-              <Field label="Target reader">
-                <input
-                  value={targetReader}
-                  onChange={e => setTargetReader(e.target.value)}
-                  className={inputCls}
-                  placeholder="e.g. fans of dark psychological thrillers, ages 25 to 45"
-                />
-              </Field>
-              <Field label="Tone">
-                <select value={tone} onChange={e => setTone(e.target.value)} className={inputCls}>
-                  <option value="thriller">Thriller</option>
-                  <option value="cozy">Cozy</option>
-                  <option value="romance">Romance</option>
-                  <option value="inspirational">Inspirational</option>
-                  <option value="literary">Literary</option>
-                  <option value="other">Other</option>
-                </select>
-              </Field>
+            <Section title="Tone">
+              <p className="text-xs text-[var(--ink-3)] mb-2">Auto-set from your genre. Adjust if needed.</p>
+              <select value={tone} onChange={e => setTone(e.target.value)} className={inputCls}>
+                <option value="thriller">Thriller</option>
+                <option value="cozy">Cozy</option>
+                <option value="romance">Romance</option>
+                <option value="inspirational">Inspirational</option>
+                <option value="literary">Literary</option>
+                <option value="other">Other</option>
+              </select>
             </Section>
             <button
               onClick={generate}
-              disabled={generating || !synopsis}
+              disabled={generating}
               className="w-full px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold text-sm transition disabled:opacity-60 flex items-center justify-center gap-2"
             >
-              {generating ? <><PackSpinner />Generating...</> : 'Generate descriptions'}
+              {generating ? <><PackSpinner />Generating...</> : 'Regenerate descriptions'}
             </button>
           </div>
           <div className="space-y-4">
@@ -3367,7 +3320,6 @@ Respond with EXACTLY this format:
               label="Long form"
               badge="600 words max"
               content={longForm}
-              onCopy={() => copyText(longForm, 'Long form')}
               onChange={(v: string) => { setLongForm(v); saveVariants(v, shortForm); }}
               placeholder="Long form description (with HTML bold tags for KDP Source view) will appear here."
             />
@@ -3375,7 +3327,6 @@ Respond with EXACTLY this format:
               label="Short form"
               badge="150 words max"
               content={shortForm}
-              onCopy={() => copyText(shortForm, 'Short form')}
               onChange={(v: string) => { setShortForm(v); saveVariants(longForm, v); }}
               placeholder="Short form description will appear here."
             />
@@ -3386,17 +3337,12 @@ Respond with EXACTLY this format:
   );
 }
 
-function KDPOutputCard({ label, badge, content, onCopy, onChange, placeholder }: any) {
+function KDPOutputCard({ label, badge, content, onChange, placeholder }: any) {
   return (
     <div className="bg-white border border-[var(--line)] rounded-xl shadow-sm overflow-hidden">
       <div className="px-4 py-2.5 border-b border-[var(--line)] bg-[var(--bg-2)] flex items-center gap-3">
         <span className="font-semibold text-sm text-[var(--ink-2)]">{label}</span>
         <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--ink-4)] bg-[var(--bg-3)] px-2 py-0.5 rounded-full">{badge}</span>
-        {content && (
-          <button onClick={onCopy} className="ml-auto px-2.5 py-1 rounded-md border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-[10px] font-bold uppercase tracking-wider transition">
-            Copy
-          </button>
-        )}
       </div>
       {content ? (
         <textarea
@@ -3414,22 +3360,19 @@ function KDPOutputCard({ label, badge, content, onCopy, onChange, placeholder }:
 /* ==================== BACK COVER TAB ==================== */
 function BackCoverTab({ data, updateData, toast }: any) {
   const lo = data.launchOutputs || {};
-  const bc = data.backCover || {};
-  const [synopsis, setSynopsis] = useState(data.synopsis || '');
-  const [authorBioLine, setAuthorBioLine] = useState(bc.authorBioOneLine || '');
+  const synopsis = data.synopsis || data.quickPrompt || '';
   const [generating, setGenerating] = useState(false);
   const output = lo.backCoverText || '';
 
   async function generate() {
-    if (!synopsis) { toast('Enter a synopsis first.', 'error'); return; }
     setGenerating(true);
     try {
       const result = await callEngine({
         task: 'back-cover',
         userPrompt: `Write back cover copy for the ${data.genre} book "${data.title}" by ${data.author}.
 
-Synopsis: ${synopsis}
-Author bio one-liner: ${authorBioLine || (data.bio || '').split('.')[0] || 'Not provided.'}
+Synopsis: ${synopsis || 'Not provided.'}
+Author bio one-liner: ${(data.bio || '').split('.')[0] || 'Not provided.'}
 
 Respond with EXACTLY this format:
 ===HOOK===
@@ -3450,7 +3393,7 @@ Respond with EXACTLY this format:
       const composed = [hook, body, tagline, author].filter(Boolean).join('\n\n');
       updateData((d: ProjectData) => ({
         ...d,
-        backCover: { ...d.backCover, hookHeadline: hook, body, pullQuote: tagline, authorBioOneLine: author || authorBioLine, genreTag: data.genre },
+        backCover: { ...d.backCover, hookHeadline: hook, body, pullQuote: tagline, authorBioOneLine: author || (data.bio || '').split('.')[0] || '', genreTag: data.genre },
         launchOutputs: { ...(d.launchOutputs || {}), backCoverText: composed },
       }));
     } catch (e: any) {
@@ -3467,68 +3410,24 @@ Respond with EXACTLY this format:
     }));
   }
 
-  function exportDocxLocal() {
-    if (!output) { toast('Generate back cover copy first.', 'error'); return; }
-    const esc = (s: string) => s.replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as any)[m]);
-    const html = `<!DOCTYPE html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><title>Back Cover</title><style>body{font-family:Garamond,Georgia,serif;font-size:11pt;line-height:1.6;max-width:5in;margin:1in auto;}p{margin:.5em 0;}</style></head><body>${output.split('\n\n').map(p => `<p>${esc(p)}</p>`).join('\n')}</body></html>`;
-    const blob = new Blob([html], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'back-cover.doc';
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-
   return (
     <div className="p-8">
       <div className="max-w-[1280px] mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-5">
           <div>
             <h2 className="font-display text-2xl font-semibold mb-1">Back cover copy</h2>
-            <p className="text-sm text-[var(--ink-3)]">Generate hook line, body paragraphs, tagline, and author bio block for the back of your book.</p>
+            <p className="text-sm text-[var(--ink-3)]">Hook line, body paragraphs, tagline, and author bio block generated from your Setup details.</p>
           </div>
-          <Section title="Book details">
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Title">
-                <input value={data.title} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
-              </Field>
-              <Field label="Genre">
-                <input value={data.genre} disabled className={inputCls + ' opacity-70 cursor-not-allowed'} />
-              </Field>
-            </div>
-            <Field label="Synopsis">
-              <textarea
-                value={synopsis}
-                onChange={e => { setSynopsis(e.target.value); updateData((d: ProjectData) => ({ ...d, synopsis: e.target.value })); }}
-                className={textareaCls + ' min-h-[120px]'}
-                placeholder="Who is the protagonist, what do they want, what stands in their way?"
-              />
-            </Field>
-            <Field label="Author bio one-liner">
-              <input
-                value={authorBioLine}
-                onChange={e => setAuthorBioLine(e.target.value)}
-                className={inputCls}
-                placeholder="e.g. Jane Doe lives in Austin, Texas with two dogs and a very old cat."
-              />
-            </Field>
-          </Section>
           <button
             onClick={generate}
-            disabled={generating || !synopsis}
+            disabled={generating}
             className="px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold text-sm transition disabled:opacity-60 flex items-center gap-2"
           >
-            {generating ? <><PackSpinner />Generating...</> : 'Generate back cover'}
+            {generating ? <><PackSpinner />Generating...</> : 'Regenerate back cover'}
           </button>
         </div>
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="font-display text-lg font-semibold">Generated copy</div>
-            {output && (
-              <button onClick={exportDocxLocal} className="px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition">
-                Export .docx
-              </button>
-            )}
-          </div>
+          <div className="font-display text-lg font-semibold">Generated copy</div>
           {output ? (
             <textarea
               value={output}
@@ -3687,15 +3586,7 @@ Respond with EXACTLY this format:
           </button>
         </div>
         <div className="space-y-3">
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="font-display text-lg font-semibold">Generated metadata</div>
-            {output && (
-              <div className="flex gap-2">
-                <button onClick={exportTxt} className="px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition">Export .txt</button>
-                <button onClick={exportMetaDocx} className="px-3 py-1.5 rounded-lg border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-xs font-semibold transition">Export .docx</button>
-              </div>
-            )}
-          </div>
+          <div className="font-display text-lg font-semibold">Generated metadata</div>
           {output ? (
             <textarea
               value={output}
