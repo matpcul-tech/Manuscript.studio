@@ -2939,13 +2939,6 @@ function FrontMatterTab({ data, updateData, toast }: any) {
     }));
   }
 
-  function copy(text: string, msg = 'Copied.') {
-    navigator.clipboard.writeText(text).then(
-      () => toast(msg, 'success'),
-      () => toast('Could not copy. Select the text manually.', 'error')
-    );
-  }
-
   function addContributor() {
     if (fm.contributors.length >= 9) { toast('Up to 9 contributors.', 'error'); return; }
     updateFm({ contributors: [...fm.contributors, { role: 'Editor', first: '', last: '' }] });
@@ -3113,21 +3106,15 @@ function FrontMatterTab({ data, updateData, toast }: any) {
 
         <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
           <div className="bg-white border border-[var(--line)] rounded-xl shadow-sm overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-[var(--line)] bg-[var(--bg-2)] flex items-center justify-between">
+            <div className="px-4 py-2.5 border-b border-[var(--line)] bg-[var(--bg-2)]">
               <div className="text-[10px] font-bold tracking-wider uppercase text-[var(--ink-3)]">Copyright page preview</div>
-              <button onClick={() => copy(copyrightPage, 'Copyright page copied.')} className="px-2.5 py-1 rounded-md border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-[10px] font-bold uppercase tracking-wider transition">
-                Copy
-              </button>
             </div>
             <pre className="px-5 py-5 font-serif text-[12px] leading-[1.7] text-[var(--ink-2)] whitespace-pre-wrap">{copyrightPage}</pre>
           </div>
 
           <div className="bg-white border border-[var(--line)] rounded-xl shadow-sm overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-[var(--line)] bg-[var(--bg-2)] flex items-center justify-between">
+            <div className="px-4 py-2.5 border-b border-[var(--line)] bg-[var(--bg-2)]">
               <div className="text-[10px] font-bold tracking-wider uppercase text-[var(--ink-3)]">Table of contents</div>
-              <button onClick={() => copy(toc, 'ToC copied.')} disabled={!toc} className="px-2.5 py-1 rounded-md border border-[var(--line)] hover:border-[var(--blue)] hover:text-[var(--blue-deep)] text-[var(--ink-2)] text-[10px] font-bold uppercase tracking-wider transition disabled:opacity-40 disabled:cursor-not-allowed">
-                Copy
-              </button>
             </div>
             <pre className="px-5 py-5 font-serif text-[12.5px] leading-[1.8] text-[var(--ink-2)] whitespace-pre-wrap max-h-[300px] overflow-y-auto">{toc || 'No chapters yet.'}</pre>
           </div>
