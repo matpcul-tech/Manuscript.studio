@@ -1572,6 +1572,23 @@ function EditStage({ data, updateData, toast, activeScene, plan }: any) {
           next.chapters = next.chapters.map(ch => ({ ...ch, scenes: ch.scenes.map(s => s.id === d.activeSceneId ? { ...s, body: result } : s) }));
         } else if (scope === 'chapter') {
           next.chapters = next.chapters.map(ch => ch.id !== scopeCh ? ch : { ...ch, scenes: [{ ...ch.scenes[0], body: result }] });
+        } else {
+          // Distribute the edited text back across chapters proportionally by
+          // original word count so chapter structure is preserved.
+          const origCounts = d.chapters.map((ch: Chapter) =>
+            ch.scenes.reduce((n: number, s: Scene) => n + countWords(s.body), 0)
+          );
+          const total = origCounts.reduce((a: number, b: number) => a + b, 0) || 1;
+          const words = result.split(/\s+/).filter(Boolean);
+          let cursor = 0;
+          next.chapters = d.chapters.map((ch: Chapter, ci: number) => {
+            const take = ci === d.chapters.length - 1
+              ? words.length - cursor
+              : Math.round(words.length * origCounts[ci] / total);
+            const body = words.slice(cursor, cursor + take).join(' ');
+            cursor += take;
+            return { ...ch, scenes: [{ ...ch.scenes[0], body }] };
+          });
         }
         return next;
       });
