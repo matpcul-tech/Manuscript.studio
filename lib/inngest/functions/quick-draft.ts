@@ -116,6 +116,7 @@ export const generateQuickDraft = inngest.createFunction(
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const supabase = createAdminClient();
 
+    try {
     // Step 1: mark job as running.
     await step.run('mark-running', async () => {
       await supabase
@@ -283,5 +284,18 @@ Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown
     });
 
     return { jobId, chaptersWritten: chapterTexts.length, success: true };
+    } catch (err) {
+      // Mark the job failed so the client polling stops showing the banner.
+      // Re-throw so Inngest can retry; on permanent failure the 'failed' status persists.
+      try {
+        await supabase
+          .from('generation_jobs')
+          .update({ status: 'failed', error_message: String(err) })
+          .eq('id', jobId);
+      } catch {
+        // If the failure update itself errors, swallow it and re-throw the original.
+      }
+      throw err;
+    }
   }
 );

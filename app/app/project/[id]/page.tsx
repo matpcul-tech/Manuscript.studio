@@ -144,7 +144,15 @@ export default function ProjectPage() {
         .limit(1)
         .maybeSingle();
       if (cancelled) return;
-      if (active) { setBgJob({ status: 'running' }); return; }
+      if (active) {
+        // Safety fallback: if chapters already have content the job is stale regardless
+        // of its DB status. Clear the banner rather than showing it forever.
+        const hasContent = dataRef.current.chapters.some(
+          (ch: Chapter) => ch.scenes.some((sc: Scene) => sc.body.trim().length > 0)
+        );
+        setBgJob(hasContent ? null : { status: 'running' });
+        return;
+      }
       const { data: rows } = await supabase
         .from('generation_jobs')
         .select('id, result_text')
