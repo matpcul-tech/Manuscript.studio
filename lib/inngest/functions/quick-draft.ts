@@ -19,6 +19,8 @@ import { ANTHROPIC_MODEL } from '@/lib/ai-config';
 
 type OutlineChapter = { title: string; synopsis: string };
 type Outline = { title: string; chapters: OutlineChapter[] };
+type CharacterEntry = { canonical_name: string; role: string; relationship_to_protagonist: string; age?: string; description: string };
+type StoryBible = { protagonist: string; setting: string; characters: CharacterEntry[] };
 
 const HARD_RULES = `RULES - never violate:
 - NEVER use em dashes ( — ) or en dashes ( – ). Use period, comma, or semicolon.
@@ -46,6 +48,22 @@ function autoScrub(text: string): string {
     .replace(/–/g, '-')
     .replace(/^\s*Here(?:\s+is|'s)[^.\n]*\.\s*/i, '')
     .replace(/\n\s*Here(?:\s+is|'s)[^.\n]*\.\s*/i, '\n');
+}
+
+function buildCanonBlock(bible: StoryBible): string {
+  const lines = [
+    `CHARACTER CANON - these names are locked. Never rename, merge, or replace them:`,
+    `Protagonist: ${bible.protagonist}`,
+    `Setting: ${bible.setting}`,
+    ``,
+    `Characters:`,
+    ...bible.characters.map(c =>
+      `- ${c.canonical_name} (${c.role}${c.age ? `, ${c.age}` : ''}): ${c.description}. Relationship to protagonist: ${c.relationship_to_protagonist}.`
+    ),
+    ``,
+    `Do NOT introduce any character by a different name than listed above. Do NOT rename any character mid-chapter or between chapters.`,
+  ];
+  return lines.join('\n');
 }
 
 // Open a Realtime channel, send one event, close. Server-side broadcasts only
@@ -129,9 +147,10 @@ export const generateQuickDraft = inngest.createFunction(
       });
     });
 
-    // Step 2: outline. One Anthropic call, returns strict JSON.
-    const outline = await step.run('outline', async () => {
-      const systemPrompt = `You are a book outlining engine. Given a description, target length, and chapter count, produce a chapter-by-chapter outline as STRICT JSON.
+    // Step 2: outline + story bible. Two sequential Anthropic calls in one
+    // Inngest step so both are cached together on retry.
+    const { outline, storyBible } = await step.run('outline', async (): Promise<{ outline: Outline; storyBible: StoryBible }> => {
+      const outlineSystemPrompt = `You are a book outlining engine. Given a description, target length, and chapter count, produce a chapter-by-chapter outline as STRICT JSON.
 
 Return ONLY a JSON object with this exact shape:
 {
@@ -150,25 +169,25 @@ Rules:
 - No em dashes anywhere
 - Return ONLY the JSON object. No markdown fences. No preamble. No explanation.`;
 
-      const userPrompt = `BOOK DESCRIPTION:\n${quickPrompt}\n\nTARGET LENGTH: ${targetWords.toLocaleString()} words\nCHAPTERS: ${chapterCount}\n${title ? `WORKING TITLE: ${title}\n` : ''}${genre ? `GENRE: ${genre}\n` : ''}`;
+      const outlineUserPrompt = `BOOK DESCRIPTION:\n${quickPrompt}\n\nTARGET LENGTH: ${targetWords.toLocaleString()} words\nCHAPTERS: ${chapterCount}\n${title ? `WORKING TITLE: ${title}\n` : ''}${genre ? `GENRE: ${genre}\n` : ''}`;
 
-      const response = await anthropic.messages.create({
+      const outlineResponse = await anthropic.messages.create({
         model: ANTHROPIC_MODEL,
         max_tokens: 2500,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
+        system: outlineSystemPrompt,
+        messages: [{ role: 'user', content: outlineUserPrompt }],
       });
 
-      const text = response.content
+      const outlineText = outlineResponse.content
         .filter((b: any) => b.type === 'text')
         .map((b: any) => b.text)
         .join('\n')
         .trim();
-      const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+      const outlineCleaned = outlineText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
 
       let parsed: Outline;
       try {
-        parsed = JSON.parse(cleaned);
+        parsed = JSON.parse(outlineCleaned);
       } catch {
         throw new Error('Could not parse outline. Try a more specific description.');
       }
@@ -179,12 +198,69 @@ Rules:
       await supabase.from('engine_usage').insert({
         user_id: userId,
         task: 'quick-draft:outline',
-        input_tokens: response.usage.input_tokens,
-        output_tokens: response.usage.output_tokens,
+        input_tokens: outlineResponse.usage.input_tokens,
+        output_tokens: outlineResponse.usage.output_tokens,
+      });
+
+      // Generate the story bible immediately after the outline so character
+      // names are locked before any chapter is written.
+      const bibleSystemPrompt = `You are a story bible engine. Given a book description and chapter-by-chapter outline, extract every named character and produce a STRICT JSON story bible.
+
+Return ONLY a JSON object with this exact shape:
+{
+  "protagonist": "full canonical name of the main character",
+  "setting": "one sentence describing the primary time and place",
+  "characters": [
+    {
+      "canonical_name": "Full Name",
+      "role": "protagonist | antagonist | supporting | minor",
+      "relationship_to_protagonist": "e.g. husband, daughter, best friend, boss",
+      "age": "e.g. 34 or omit if unknown",
+      "description": "one sentence: physical appearance and core personality trait"
+    }
+  ]
+}
+
+Rules:
+- Include every named character implied by the outline, even if only mentioned once
+- canonical_name is the ONLY name that may be used in the manuscript. Never vary it.
+- No em dashes anywhere
+- Return ONLY the JSON object. No markdown fences. No preamble. No explanation.`;
+
+      const bibleUserPrompt = `BOOK DESCRIPTION:\n${quickPrompt}\n\nOUTLINE:\n${parsed.chapters.map((c, i) => `${i + 1}. ${c.title}: ${c.synopsis}`).join('\n')}`;
+
+      const bibleResponse = await anthropic.messages.create({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1500,
+        system: bibleSystemPrompt,
+        messages: [{ role: 'user', content: bibleUserPrompt }],
+      });
+
+      const bibleText = bibleResponse.content
+        .filter((b: any) => b.type === 'text')
+        .map((b: any) => b.text)
+        .join('\n')
+        .trim();
+      const bibleCleaned = bibleText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+      let bible: StoryBible;
+      try {
+        bible = JSON.parse(bibleCleaned);
+      } catch {
+        // Non-fatal: continue without a bible rather than aborting the whole job.
+        logger.warn('Could not parse story bible; proceeding without character canon.', { jobId });
+        bible = { protagonist: '', setting: '', characters: [] };
+      }
+
+      await supabase.from('engine_usage').insert({
+        user_id: userId,
+        task: 'quick-draft:bible',
+        input_tokens: bibleResponse.usage.input_tokens,
+        output_tokens: bibleResponse.usage.output_tokens,
       });
 
       await broadcastEvent(jobId, 'outline', parsed);
-      return parsed;
+      return { outline: parsed, storyBible: bible };
     });
 
     // Step 3..N+2: each chapter is its own step so retries only re-run the
@@ -217,12 +293,17 @@ Rules:
           ? `Open the book. Establish the world, the voice, and the first conflict or question. Make the reader want to keep going. Open at the first real sentence, no throat-clearing.`
           : `Continue the book. The previous chapter ended like this:\n---\n${previousTail}\n---\nPick up the narrative naturally. Maintain voice, character names, and tone established earlier.`;
 
+        const bible = storyBible as StoryBible | null;
+        const canonBlock = bible && bible.characters && bible.characters.length > 0
+          ? `\n${buildCanonBlock(bible)}\n`
+          : '';
+
         const systemPrompt = `You are a manuscript writer producing prose for a long-form book. Nothing should reveal that it came from a language model.
 
 ${buildVoiceBlock(voiceSample, voiceProfile, voiceNotes)}
 
 ${HARD_RULES}
-
+${canonBlock}
 TASK: Write Chapter ${i + 1} of this book. About ${perChapterTarget} words. ${contextBlock}
 
 Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown.`;
@@ -267,7 +348,7 @@ Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown
 
     // Step N+3: persist final result and signal done.
     await step.run('save-result', async () => {
-      const result = JSON.stringify({ outline, chapterTexts });
+      const result = JSON.stringify({ outline, storyBible, chapterTexts });
       await supabase
         .from('generation_jobs')
         .update({
@@ -279,6 +360,7 @@ Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown
         .eq('id', jobId);
       await broadcastEvent(jobId, 'done', {
         outline,
+        storyBible,
         chapterTexts,
       });
     });

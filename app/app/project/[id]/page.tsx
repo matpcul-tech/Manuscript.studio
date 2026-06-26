@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { callEngine, scrubText, countWords, computeAIScore, type AIScore } from '@/lib/engine';
 import { exportDocx, exportEpub, exportPdf, exportBundle } from '@/lib/exports';
-import { defaultProjectData, cid, type ProjectData, type Chapter, type Scene } from '@/lib/types';
+import { defaultProjectData, cid, type ProjectData, type Chapter, type Scene, type StoryBible } from '@/lib/types';
 import { GenerationStream } from '@/components/GenerationStream';
 
 const STAGES = [
@@ -1022,7 +1022,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     toast('Stopped watching. Your draft is still generating in the background.', 'success');
   }
 
-  function handleQuickDraftComplete(outline: { title: string; chapters: { title: string; synopsis: string }[] }, chapterTexts: string[]) {
+  function handleQuickDraftComplete(outline: { title: string; chapters: { title: string; synopsis: string }[] }, chapterTexts: string[], storyBible?: StoryBible | null) {
     const newChapters: Chapter[] = outline.chapters.map((ch, i) => ({
       id: cid(),
       title: ch.title,
@@ -1039,6 +1039,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
       chapters: newChapters,
       activeSceneId: newChapters[0].scenes[0].id,
       writeMode: 'manual',
+      storyBible: storyBible ?? d.storyBible,
     }));
     const draftedCount = chapterTexts.length;
     const total = outline.chapters.length;
@@ -1123,7 +1124,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   function importPendingJob(job: { id: string; result_text: string }) {
     try {
       const parsed = JSON.parse(job.result_text);
-      handleQuickDraftComplete(parsed.outline, parsed.chapterTexts);
+      handleQuickDraftComplete(parsed.outline, parsed.chapterTexts, parsed.storyBible ?? null);
       const appliedKey = `manuscript:applied-jobs:${projectId}`;
       let applied: string[] = [];
       try { applied = JSON.parse(localStorage.getItem(appliedKey) || '[]'); } catch {}
@@ -1189,7 +1190,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
         setQuickStatus(s.message);
         setQuickProgress({ done: s.chaptersComplete, total: s.totalChapters });
       }}
-      onComplete={({ outline, chapterTexts }) => handleQuickDraftComplete(outline, chapterTexts)}
+      onComplete={({ outline, chapterTexts, storyBible }) => handleQuickDraftComplete(outline, chapterTexts, storyBible)}
       onError={msg => {
         toast(msg, 'error');
         setQuickJobId(null);
@@ -1519,6 +1520,7 @@ function EditStage({ data, updateData, toast, activeScene, plan }: any) {
   const [structureIssues, setStructureIssues] = useState<StructureIssue[] | null>(null);
   const [somaticScore, setSomaticScore] = useState<{ score: number; grade: string; color: string; label: string } | null>(null);
   const [somaticIssues, setSomaticIssues] = useState<Issue[] | null>(null);
+  const [continuityIssues, setContinuityIssues] = useState<Issue[] | null>(null);
   const [applyingId, setApplyingId] = useState('');
 
   function getTarget() {
@@ -1975,8 +1977,71 @@ Rules:
     }
   }
 
-  function handleAcceptIssue(kind: 'cons' | 'pace' | 'somatic', id: string) {
-    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : somaticIssues;
+  async function checkContinuity() {
+    if (!data.storyBible) { toast('No story bible found. This check only runs on Quick Draft projects.', 'error'); return; }
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('continuity');
+    setContinuityIssues(null);
+
+    const bible = data.storyBible as StoryBible;
+    const canonList = bible.characters.map((c: any) => `${c.canonical_name} (${c.role})`).join(', ');
+
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Manuscript passage:\n---\n${target.text.slice(0, 10000)}\n---`,
+        systemOverride: `You are a continuity editor. The canonical character roster for this manuscript is:
+
+Protagonist: ${bible.protagonist}
+Setting: ${bible.setting}
+Characters: ${canonList}
+
+Find every place in the passage where a character is called by a name that does NOT match the canonical roster above. These are continuity errors: the author or AI has drifted and used a wrong name.
+
+Return ONLY a JSON object with this shape:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring (10 to 80 words) containing the wrong name, copied character for character from the text",
+      "rewrite": "the same passage with every wrong name replaced by the correct canonical name",
+      "reason": "e.g. 'Daniel is called Joel here; canonical name is Daniel'"
+    }
+  ]
+}
+
+Rules:
+- Only flag wrong names for named characters. Do not flag nicknames, titles, or pronouns.
+- The passage field MUST be an exact verbatim copy from the text. Do not paraphrase.
+- Return ONLY the JSON object. No markdown fences. No preamble. No explanation.
+- If no continuity errors are found, return { "issues": [] }`,
+        maxTokens: 3000,
+        timeoutMs: 90000,
+      });
+
+      const cleaned = result.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+
+      const issues: Issue[] = (parsed.issues || []).map((it: any, idx: number) => ({
+        id: `continuity-${Date.now()}-${idx}`,
+        passage: it.passage,
+        rewrite: it.rewrite,
+        reason: it.reason,
+        applied: false,
+      }));
+      setContinuityIssues(issues);
+
+      if (issues.length === 0) {
+        toast('No character name drift found. All names match the story bible.', 'success');
+      }
+    } catch (e: any) {
+      toast(e.message || 'Continuity check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  function handleAcceptIssue(kind: 'cons' | 'pace' | 'somatic' | 'continuity', id: string) {
+    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : kind === 'continuity' ? continuityIssues : somaticIssues;
     if (!list) return;
     const issue = list.find(i => i.id === id);
     if (!issue || issue.applied) return;
@@ -1987,6 +2052,7 @@ Rules:
       const next = list.map(i => i.id === id ? { ...i, applied: true } : i);
       if (kind === 'cons') setConsistencyIssues(next);
       else if (kind === 'pace') setPacingIssues(next);
+      else if (kind === 'continuity') setContinuityIssues(next);
       else setSomaticIssues(next);
       toast('Applied.', 'success');
     } else {
@@ -1995,17 +2061,18 @@ Rules:
     setApplyingId('');
   }
 
-  function handleRejectIssue(kind: 'cons' | 'pace' | 'somatic', id: string) {
-    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : somaticIssues;
+  function handleRejectIssue(kind: 'cons' | 'pace' | 'somatic' | 'continuity', id: string) {
+    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : kind === 'continuity' ? continuityIssues : somaticIssues;
     if (!list) return;
     const next = list.filter(i => i.id !== id);
     if (kind === 'cons') setConsistencyIssues(next);
     else if (kind === 'pace') setPacingIssues(next);
+    else if (kind === 'continuity') setContinuityIssues(next);
     else setSomaticIssues(next);
   }
 
-  function handleFixAll(kind: 'cons' | 'pace' | 'somatic') {
-    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : somaticIssues;
+  function handleFixAll(kind: 'cons' | 'pace' | 'somatic' | 'continuity') {
+    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : kind === 'continuity' ? continuityIssues : somaticIssues;
     if (!list || list.length === 0) return;
     const unapplied = list.filter(i => !i.applied);
     if (unapplied.length === 0) { toast('All fixes already applied.', 'success'); return; }
@@ -2045,6 +2112,7 @@ Rules:
     const nextList = list.map(i => successIds.has(i.id) ? { ...i, applied: true } : i);
     if (kind === 'cons') setConsistencyIssues(nextList);
     else if (kind === 'pace') setPacingIssues(nextList);
+    else if (kind === 'continuity') setContinuityIssues(nextList);
     else setSomaticIssues(nextList);
 
     if (successCount > 0 && failCount === 0) {
@@ -2329,6 +2397,54 @@ Rules:
                 </div>
               )}
             </div>
+
+            {data.storyBible && (
+              <div className={editCard}>
+                <div className="flex items-center justify-between mb-1">
+                  <h4 className="font-display text-[17px] font-semibold">Character Continuity</h4>
+                  <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--ink-4)]">Studio</span>
+                </div>
+                <p className="text-xs text-[var(--ink-3)] mb-3">Checks every character name against the story bible generated at draft time. Catches name drift across chapters.</p>
+
+                <button onClick={checkContinuity} disabled={busy === 'continuity'} className={btnGhostFull}>
+                  {busy === 'continuity' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : continuityIssues ? 'Re-run check' : 'Run continuity check'}
+                </button>
+
+                {continuityIssues && continuityIssues.length > 0 && (
+                  <div className="mt-3">
+                    <div className="flex items-center justify-between mb-2.5">
+                      <div className="text-xs font-medium text-[var(--ink-2)]">
+                        {continuityIssues.filter(i => !i.applied).length} of {continuityIssues.length} unfixed
+                      </div>
+                      <button
+                        onClick={() => handleFixAll('continuity')}
+                        className="text-xs font-semibold text-[var(--blue-deep)] hover:underline"
+                        disabled={continuityIssues.every(i => i.applied)}
+                      >
+                        Fix all
+                      </button>
+                    </div>
+                    <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                      {continuityIssues.map(issue => (
+                        <IssueCard
+                          key={issue.id}
+                          issue={issue}
+                          applying={applyingId === issue.id}
+                          onAccept={() => handleAcceptIssue('continuity', issue.id)}
+                          onReject={() => handleRejectIssue('continuity', issue.id)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {continuityIssues && continuityIssues.length === 0 && (
+                  <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>
+                    All character names match the story bible.
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

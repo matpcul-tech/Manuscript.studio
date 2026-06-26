@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client';
 
 type OutlineChapter = { title: string; synopsis: string };
 type Outline = { title: string; chapters: OutlineChapter[] };
+type CharacterEntry = { canonical_name: string; role: string; relationship_to_protagonist: string; age?: string; description: string };
+type StoryBible = { protagonist: string; setting: string; characters: CharacterEntry[] };
 
 export type QuickDraftStatus = {
   phase: 'connecting' | 'outline' | 'chapter' | 'done' | 'error';
@@ -15,6 +17,7 @@ export type QuickDraftStatus = {
 
 export type QuickDraftResult = {
   outline: Outline;
+  storyBible?: StoryBible | null;
   chapterTexts: string[];
 };
 
@@ -77,7 +80,7 @@ export function GenerationStream({
       if (data.status === 'complete' && data.result_text) {
         try {
           const parsed = JSON.parse(data.result_text);
-          finishWithResult({ outline: parsed.outline, chapterTexts: parsed.chapterTexts });
+          finishWithResult({ outline: parsed.outline, storyBible: parsed.storyBible ?? null, chapterTexts: parsed.chapterTexts });
         } catch {
           finishWithError('Could not parse completed job result.');
         }
@@ -132,6 +135,7 @@ export function GenerationStream({
       .on('broadcast', { event: 'done' }, ({ payload }) => {
         finishWithResult({
           outline: payload.outline,
+          storyBible: payload.storyBible ?? null,
           chapterTexts: payload.chapterTexts,
         });
       })

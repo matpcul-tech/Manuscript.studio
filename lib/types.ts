@@ -1,3 +1,17 @@
+export type CharacterEntry = {
+  canonical_name: string;
+  role: string;
+  relationship_to_protagonist: string;
+  age?: string;
+  description: string;
+};
+
+export type StoryBible = {
+  protagonist: string;
+  setting: string;
+  characters: CharacterEntry[];
+};
+
 export type Scene = {
   id: string;
   title: string;
@@ -45,6 +59,7 @@ export type ProjectData = {
   writeMode: 'quick' | 'manual';
   quickPrompt: string;
   quickWordTarget: number;
+  storyBible: StoryBible | null;
   // kdp launch
   kdpDescription: string;
   kdpKeywords: string[];
@@ -135,6 +150,7 @@ export function defaultProjectData(): ProjectData {
     writeMode: 'quick',
     quickPrompt: '',
     quickWordTarget: 60000,
+    storyBible: null,
     kdpDescription: '',
     kdpKeywords: [],
     kdpCategories: [],
