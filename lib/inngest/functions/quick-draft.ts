@@ -29,7 +29,13 @@ const HARD_RULES = `RULES - never violate:
 - No tricolons climbing to abstract nouns.
 - No throat-clearing. Start at the first real sentence.
 - Concrete over abstract. Vary sentence length. Trust the reader.
-- Never frame output. No "Here is the scene." Return only the prose.`;
+- Never frame output. No "Here is the scene." Return only the prose.
+- No paired adjectives before a noun when both describe the same sense (e.g. "cold, frozen ground"). Keep the stronger one or rephrase.
+- No appositive closers: do not tack a comma + renaming noun phrase + that/which clause to a sentence end to inflate it.
+- Never write "not X but Y" or "This was not X. This was Y." Assert the positive directly.
+- No three or more consecutive sentences that open with the same word or stem.
+- Vary sentence length. Mix fragments under 8 words with longer sentences. Never run five sentences of similar length in a row.
+- Do not state the theme in narration. Move meaning into incident, action, or dialogue.`;
 
 function buildVoiceBlock(voiceSample?: string, voiceProfile?: string, voiceNotes?: string) {
   if (!voiceSample) {

@@ -83,6 +83,27 @@ export function countWords(s: string): number {
   return (s.trim().match(/\S+/g) || []).length;
 }
 
+export type SentenceVariance = {
+  count: number;
+  mean: number;
+  stddev: number;
+  shortFraction: number;
+  longFraction: number;
+};
+
+export function measureSentenceVariance(text: string): SentenceVariance {
+  const sentences = (text.match(/[^.!?]+[.!?]+/g) || []).map(s => s.trim()).filter(s => s.length > 0);
+  if (sentences.length === 0) return { count: 0, mean: 0, stddev: 0, shortFraction: 0, longFraction: 0 };
+  const lengths = sentences.map(s => s.split(/\s+/).filter(Boolean).length);
+  const count = lengths.length;
+  const mean = lengths.reduce((a, b) => a + b, 0) / count;
+  const variance = lengths.reduce((sum, l) => sum + (l - mean) ** 2, 0) / count;
+  const stddev = Math.sqrt(variance);
+  const shortFraction = lengths.filter(l => l < 8).length / count;
+  const longFraction = lengths.filter(l => l > 25).length / count;
+  return { count, mean, stddev, shortFraction, longFraction };
+}
+
 export type AIScore = {
   density: number;
   totalTells: number;
