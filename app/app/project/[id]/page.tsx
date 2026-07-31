@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { callEngine, scrubText, countWords, computeAIScore, type AIScore } from '@/lib/engine';
+import { callEngine, scrubText, countWords, computeAIScore, measureSentenceVariance, type AIScore, type SentenceVariance } from '@/lib/engine';
 import { exportDocx, exportEpub, exportPdf, exportBundle } from '@/lib/exports';
 import { defaultProjectData, cid, type ProjectData, type Chapter, type Scene, type StoryBible } from '@/lib/types';
 import { GenerationStream } from '@/components/GenerationStream';
@@ -34,6 +34,17 @@ type StructureIssue = {
   problem: string;
   fix: string;
 };
+
+type GlossaryEntry = {
+  id: string;
+  term: string;
+  count: number;
+  example: string;
+  status: 'pending' | 'approved' | 'renamed' | 'cut';
+  newName: string;
+};
+
+type HumanizeKind = 'cons' | 'pace' | 'somatic' | 'continuity' | 'simile' | 'subtext' | 'rhythm' | 'tonal' | 'paired' | 'appos' | 'negat' | 'triplet' | 'theme';
 
 type TitleSuggestion = {
   title: string;
@@ -1521,6 +1532,17 @@ function EditStage({ data, updateData, toast, activeScene, plan }: any) {
   const [somaticScore, setSomaticScore] = useState<{ score: number; grade: string; color: string; label: string } | null>(null);
   const [somaticIssues, setSomaticIssues] = useState<Issue[] | null>(null);
   const [continuityIssues, setContinuityIssues] = useState<Issue[] | null>(null);
+  const [simileIssues, setSimileIssues] = useState<Issue[] | null>(null);
+  const [subtextIssues, setSubtextIssues] = useState<Issue[] | null>(null);
+  const [rhythmIssues, setRhythmIssues] = useState<Issue[] | null>(null);
+  const [rhythmResult, setRhythmResult] = useState<SentenceVariance | null>(null);
+  const [tonalIssues, setTonalIssues] = useState<Issue[] | null>(null);
+  const [pairedIssues, setPairedIssues] = useState<Issue[] | null>(null);
+  const [apposIssues, setApposIssues] = useState<Issue[] | null>(null);
+  const [negatIssues, setNegatIssues] = useState<Issue[] | null>(null);
+  const [tripletIssues, setTripletIssues] = useState<Issue[] | null>(null);
+  const [compoundEntries, setCompoundEntries] = useState<GlossaryEntry[] | null>(null);
+  const [themeIssues, setThemeIssues] = useState<Issue[] | null>(null);
   const [applyingId, setApplyingId] = useState('');
 
   function getTarget() {
@@ -1739,6 +1761,39 @@ function EditStage({ data, updateData, toast, activeScene, plan }: any) {
       return next;
     });
     return success;
+  }
+
+  function resolveIssueList(kind: HumanizeKind): Issue[] | null {
+    if (kind === 'cons') return consistencyIssues;
+    if (kind === 'pace') return pacingIssues;
+    if (kind === 'somatic') return somaticIssues;
+    if (kind === 'continuity') return continuityIssues;
+    if (kind === 'simile') return simileIssues;
+    if (kind === 'subtext') return subtextIssues;
+    if (kind === 'rhythm') return rhythmIssues;
+    if (kind === 'tonal') return tonalIssues;
+    if (kind === 'paired') return pairedIssues;
+    if (kind === 'appos') return apposIssues;
+    if (kind === 'negat') return negatIssues;
+    if (kind === 'triplet') return tripletIssues;
+    if (kind === 'theme') return themeIssues;
+    return null;
+  }
+
+  function commitIssueList(kind: HumanizeKind, next: Issue[]) {
+    if (kind === 'cons') setConsistencyIssues(next);
+    else if (kind === 'pace') setPacingIssues(next);
+    else if (kind === 'somatic') setSomaticIssues(next);
+    else if (kind === 'continuity') setContinuityIssues(next);
+    else if (kind === 'simile') setSimileIssues(next);
+    else if (kind === 'subtext') setSubtextIssues(next);
+    else if (kind === 'rhythm') setRhythmIssues(next);
+    else if (kind === 'tonal') setTonalIssues(next);
+    else if (kind === 'paired') setPairedIssues(next);
+    else if (kind === 'appos') setApposIssues(next);
+    else if (kind === 'negat') setNegatIssues(next);
+    else if (kind === 'triplet') setTripletIssues(next);
+    else if (kind === 'theme') setThemeIssues(next);
   }
 
   async function checkConsistency() {
@@ -2040,20 +2095,470 @@ Rules:
     }
   }
 
-  function handleAcceptIssue(kind: 'cons' | 'pace' | 'somatic' | 'continuity', id: string) {
-    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : kind === 'continuity' ? continuityIssues : somaticIssues;
+  async function checkSimile() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('simile');
+    setSimileIssues(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a prose editor specializing in figurative language. Find passages where the same simile stem or vehicle repeats (e.g. "like a storm", "like a river", "like stone"), making the imagery feel stale. For each repetition, provide a rewrite that replaces the duplicate with fresh, concrete imagery.
+
+Return ONLY a JSON object:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring containing the duplicate simile (10 to 80 words, must match character for character)",
+      "rewrite": "same passage with the duplicate simile replaced by fresh imagery",
+      "reason": "one sentence: which simile repeats and what it reduces to"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 4 issues. Only flag genuine repetition, not incidental reuse of common words.
+- passage must be an EXACT verbatim substring. Copy character for character.
+- No em dashes. No chatbot vocabulary.
+- If no repetition found, return { "issues": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 3000,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({ id: `simile-${Date.now()}-${idx}`, passage: it.passage, rewrite: it.rewrite, reason: it.reason, applied: false }));
+      setSimileIssues(issues);
+      if (issues.length === 0) toast('No repeated similes found.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function checkSubtext() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('subtext');
+    setSubtextIssues(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a literary editor. Find passages where the narrative over-explains an emotional moment that the action or dialogue already conveys. Good prose trusts the reader: it does not name the emotion after showing it. Flag lines that spell out what the reader has already felt, and provide rewrites that cut the explanation.
+
+Return ONLY a JSON object:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring that over-explains (10 to 80 words, must match character for character)",
+      "rewrite": "same passage with the explanatory layer removed, letting the action or dialogue carry the meaning",
+      "reason": "one sentence: what the text already showed and what the explanation repeated"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 4 issues. Only flag cases where the explanation is genuinely redundant.
+- passage must be an EXACT verbatim substring.
+- No em dashes. No chatbot vocabulary.
+- If no over-explanation found, return { "issues": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 3000,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({ id: `subtext-${Date.now()}-${idx}`, passage: it.passage, rewrite: it.rewrite, reason: it.reason, applied: false }));
+      setSubtextIssues(issues);
+      if (issues.length === 0) toast('No over-explanation found.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function checkRhythm() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('rhythm');
+    setRhythmIssues(null);
+    setRhythmResult(null);
+    try {
+      const variance = measureSentenceVariance(target.text);
+      setRhythmResult(variance);
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a prose rhythm editor. Find blocks of consecutive sentences that are too similar in length and structure, creating a monotonous or metronomic beat. Provide rewrites that introduce variation: a short fragment, a longer compound sentence, a mid-sentence beat.
+
+Return ONLY a JSON object:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring of the monotonous block (20 to 120 words, must match character for character)",
+      "rewrite": "same passage rewritten with varied sentence lengths and structures",
+      "reason": "one sentence: e.g. five sentences all 12 to 15 words, all subject-verb-object"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 4 issues. Only flag genuinely monotonous blocks.
+- passage must be an EXACT verbatim substring.
+- Rewrites must preserve all meaning, character action, and plot beats.
+- No em dashes. No chatbot vocabulary.
+- If rhythm is varied throughout, return { "issues": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 3000,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({ id: `rhythm-${Date.now()}-${idx}`, passage: it.passage, rewrite: it.rewrite, reason: it.reason, applied: false }));
+      setRhythmIssues(issues);
+      if (issues.length === 0) toast('Rhythm is varied throughout.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function checkTonal() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('tonal');
+    setTonalIssues(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a literary editor specializing in voice authenticity. Find passages where the prose is too polished, too smooth, or too even-keeled for the scene or character. Mechanical perfection is an AI fingerprint. Authentic human writing has grain: sentence fragments, tonal shifts, word choices that are slightly off-center. Provide rewrites that add texture and specificity.
+
+Return ONLY a JSON object:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring that sounds too smooth (10 to 80 words, must match character for character)",
+      "rewrite": "same passage with added grain, texture, or tonal authenticity",
+      "reason": "one sentence: what made it sound too polished"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 4 issues. Only flag passages that genuinely sound manufactured.
+- passage must be an EXACT verbatim substring.
+- No em dashes. No chatbot vocabulary.
+- If prose has authentic texture throughout, return { "issues": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 3000,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({ id: `tonal-${Date.now()}-${idx}`, passage: it.passage, rewrite: it.rewrite, reason: it.reason, applied: false }));
+      setTonalIssues(issues);
+      if (issues.length === 0) toast('Tone has authentic texture throughout.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function checkPaired() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('paired');
+    setPairedIssues(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a prose editor. Find instances of paired adjectives before a noun where both adjectives describe the same sense or quality, creating redundancy (e.g. "cold, frozen ground", "dark, shadowy room", "loud, thundering crash"). The second adjective adds no new information. Provide a rewrite that keeps only the stronger adjective, or rephrases to give each modifier a distinct job.
+
+Return ONLY a JSON object:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring containing the paired adjective construction (10 to 60 words, must match character for character)",
+      "rewrite": "same passage with the redundant adjective removed or both given distinct roles",
+      "reason": "one sentence: which two adjectives overlap and how"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 5 issues. Only flag pairs where both adjectives describe the same dimension.
+- Do not flag adjective pairs where each serves a different role (e.g. "tall, dark stranger" -- height and appearance are distinct).
+- passage must be an EXACT verbatim substring.
+- No em dashes.
+- If no redundant pairs found, return { "issues": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 2500,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({ id: `paired-${Date.now()}-${idx}`, passage: it.passage, rewrite: it.rewrite, reason: it.reason, applied: false }));
+      setPairedIssues(issues);
+      if (issues.length === 0) toast('No redundant paired adjectives found.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function checkAppos() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('appos');
+    setApposIssues(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a prose editor. Find sentences that end with an appositive closer: a construction where a comma introduces a renaming noun phrase (often followed by a relative clause with "that" or "which") tacked to the sentence end to inflate it. These read as AI-generated because they add length without adding meaning. Example: "She turned, a keeper of secrets, who held everything close." Provide a rewrite that ends the sentence at the natural stopping point, or restructures so the information is load-bearing.
+
+Return ONLY a JSON object:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring containing the appositive closer (10 to 80 words, must match character for character)",
+      "rewrite": "same passage with the appositive closer cut or restructured",
+      "reason": "one sentence: what the closer added and why it was dead weight"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 4 issues. Only flag closers that genuinely inflate without earning their place.
+- passage must be an EXACT verbatim substring.
+- No em dashes.
+- If no appositive closers found, return { "issues": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 2500,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({ id: `appos-${Date.now()}-${idx}`, passage: it.passage, rewrite: it.rewrite, reason: it.reason, applied: false }));
+      setApposIssues(issues);
+      if (issues.length === 0) toast('No appositive closers found.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function checkNegat() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('negat');
+    setNegatIssues(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a prose editor. Find constructions that define something by what it is not before asserting what it is: "not X but Y", "This was not X. This was Y.", "It wasn't X; it was Y." These constructions are an AI fingerprint: they inflate word count, delay the real claim, and signal uncertainty in the writing. Rewrite each to assert the positive directly.
+
+Return ONLY a JSON object:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring containing the negation construction (10 to 80 words, must match character for character)",
+      "rewrite": "same passage asserting the positive directly, without the negative frame",
+      "reason": "one sentence: what the negation delayed and what the direct form is"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 5 issues.
+- Only flag negation-then-assertion patterns. Do not flag simple negatives that stand alone ("She did not answer").
+- passage must be an EXACT verbatim substring.
+- No em dashes.
+- If no negation constructions found, return { "issues": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 2500,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({ id: `negat-${Date.now()}-${idx}`, passage: it.passage, rewrite: it.rewrite, reason: it.reason, applied: false }));
+      setNegatIssues(issues);
+      if (issues.length === 0) toast('No negation constructions found.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function checkTriplet() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('triplet');
+    setTripletIssues(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a prose editor. Find runs of three or more consecutive sentences that begin with the same word or word stem (e.g. "She walked... She turned... She picked up..."). This anaphoric repetition signals AI generation and creates a machine-gun monotony. Provide a rewrite that varies the sentence openings.
+
+Return ONLY a JSON object:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring of the anaphoric run (20 to 120 words, must match character for character)",
+      "rewrite": "same passage with varied sentence openings that preserve all actions and meaning",
+      "reason": "one sentence: which word or stem repeats and how many times"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 4 issues.
+- Only flag runs of 3 or more consecutive sentences with the same opening word or stem.
+- passage must be an EXACT verbatim substring.
+- No em dashes.
+- If no anaphoric runs found, return { "issues": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 3000,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({ id: `triplet-${Date.now()}-${idx}`, passage: it.passage, rewrite: it.rewrite, reason: it.reason, applied: false }));
+      setTripletIssues(issues);
+      if (issues.length === 0) toast('No anaphoric sentence runs found.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function checkCompound() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('compound');
+    setCompoundEntries(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a prose editor. Find compound noun phrases that cluster in the text and make it sound like marketing copy or AI-generated content. These are multi-word noun groups where nouns stack as modifiers: "information processing capacity", "leadership development framework", "emotional intelligence quotient". Each such cluster sounds corporate and lifeless.
+
+Return ONLY a JSON object:
+{
+  "terms": [
+    {
+      "term": "the exact compound noun phrase as it appears",
+      "count": 2,
+      "example": "exact verbatim sentence or phrase where it first appears (15 to 50 words)"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 8 terms. Only include noun-stacks of 3 or more words, or clearly corporate 2-word compounds.
+- Do not flag compound nouns that are proper nouns, technical terms, or genre conventions.
+- count is how many times the term or a close variant appears in the passage.
+- example must be an EXACT verbatim substring from the passage.
+- If no compound noun clusters found, return { "terms": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 2000,
+      });
+      const parsed = parseJsonResponse(result);
+      const entries: GlossaryEntry[] = (parsed.terms || []).map((it: any, idx: number) => ({
+        id: `compound-${Date.now()}-${idx}`,
+        term: it.term || '',
+        count: it.count || 1,
+        example: it.example || '',
+        status: 'pending' as const,
+        newName: '',
+      }));
+      setCompoundEntries(entries);
+      if (entries.length === 0) toast('No compound noun clusters found.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  function applyCompoundAction(entry: GlossaryEntry, action: 'approved' | 'renamed' | 'cut') {
+    setCompoundEntries(prev => (prev || []).map(e => e.id === entry.id ? { ...e, status: action, newName: entry.newName } : e));
+    if (action === 'renamed' && entry.newName.trim()) {
+      updateData((d: ProjectData) => {
+        const replaceFn = (text: string) => text.replace(new RegExp(entry.term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), entry.newName.trim());
+        const nd = { ...d };
+        if (scope === 'scene') {
+          nd.chapters = nd.chapters.map(ch => ({ ...ch, scenes: ch.scenes.map(s => s.id === d.activeSceneId ? { ...s, body: replaceFn(s.body) } : s) }));
+        } else if (scope === 'chapter') {
+          nd.chapters = nd.chapters.map(ch => ch.id !== scopeCh ? ch : { ...ch, scenes: ch.scenes.map(s => ({ ...s, body: replaceFn(s.body) })) });
+        } else {
+          nd.chapters = nd.chapters.map(ch => ({ ...ch, scenes: ch.scenes.map(s => ({ ...s, body: replaceFn(s.body) })) }));
+        }
+        return nd;
+      });
+      toast('Term renamed throughout.', 'success');
+    } else if (action === 'cut') {
+      toast('Marked for cut. Remove it manually in the Write stage.', 'success');
+    }
+  }
+
+  async function checkTheme() {
+    if (!target.text.trim()) { toast('Nothing to check.', 'error'); return; }
+    setBusy('theme');
+    setThemeIssues(null);
+    try {
+      const result = await callEngine({
+        task: '',
+        userPrompt: `Passage:\n---\n${target.text.slice(0, 8000)}\n---`,
+        systemOverride: `You are a literary editor. Find passages where the narrator explicitly states the theme, moral, or meaning of the story instead of letting the reader discover it through incident or character action. This is called theme announcement and it condescends to the reader. Examples: "This was the moment he understood that love requires sacrifice." "She realized then that family was all that mattered." "The truth was that freedom always comes at a cost." Provide rewrites that cut the announcement and trust the action to carry the meaning.
+
+Return ONLY a JSON object:
+{
+  "issues": [
+    {
+      "passage": "exact verbatim substring containing the theme announcement (10 to 80 words, must match character for character)",
+      "rewrite": "same passage with the thematic statement removed or embedded in action and dialogue",
+      "reason": "one sentence: what theme was announced and how to trust the reader instead"
+    }
+  ]
+}
+
+Rules:
+- Return 0 to 4 issues.
+- Only flag passages where the theme is explicitly stated by the narrator, not where characters speak thematically in dialogue.
+- passage must be an EXACT verbatim substring.
+- No em dashes.
+- If no theme announcements found, return { "issues": [] }.
+- Return ONLY the JSON object. No markdown fences. No preamble.`,
+        maxTokens: 3000,
+      });
+      const parsed = parseJsonResponse(result);
+      const issues: Issue[] = (parsed.issues || [])
+        .filter((it: any) => it && it.passage && it.rewrite && !isNoOpRewrite(it.passage, it.rewrite))
+        .map((it: any, idx: number) => ({ id: `theme-${Date.now()}-${idx}`, passage: it.passage, rewrite: it.rewrite, reason: it.reason, applied: false }));
+      setThemeIssues(issues);
+      if (issues.length === 0) toast('No theme announcements found.', 'success');
+    } catch (e: any) {
+      toast(e.message || 'Check failed. Try again.', 'error');
+    } finally {
+      setBusy('');
+    }
+  }
+
+  function handleAcceptIssue(kind: HumanizeKind, id: string) {
+    const list = resolveIssueList(kind);
     if (!list) return;
     const issue = list.find(i => i.id === id);
     if (!issue || issue.applied) return;
-
     setApplyingId(id);
     const applied = applyIssueRewrite(issue);
     if (applied) {
-      const next = list.map(i => i.id === id ? { ...i, applied: true } : i);
-      if (kind === 'cons') setConsistencyIssues(next);
-      else if (kind === 'pace') setPacingIssues(next);
-      else if (kind === 'continuity') setContinuityIssues(next);
-      else setSomaticIssues(next);
+      commitIssueList(kind, list.map(i => i.id === id ? { ...i, applied: true } : i));
       toast('Applied.', 'success');
     } else {
       toast('Could not find that exact passage. The text may have changed. Try Re-run check to scan the current text.', 'error');
@@ -2061,36 +2566,25 @@ Rules:
     setApplyingId('');
   }
 
-  function handleRejectIssue(kind: 'cons' | 'pace' | 'somatic' | 'continuity', id: string) {
-    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : kind === 'continuity' ? continuityIssues : somaticIssues;
+  function handleRejectIssue(kind: HumanizeKind, id: string) {
+    const list = resolveIssueList(kind);
     if (!list) return;
-    const next = list.filter(i => i.id !== id);
-    if (kind === 'cons') setConsistencyIssues(next);
-    else if (kind === 'pace') setPacingIssues(next);
-    else if (kind === 'continuity') setContinuityIssues(next);
-    else setSomaticIssues(next);
+    commitIssueList(kind, list.filter(i => i.id !== id));
   }
 
-  function handleFixAll(kind: 'cons' | 'pace' | 'somatic' | 'continuity') {
-    const list = kind === 'cons' ? consistencyIssues : kind === 'pace' ? pacingIssues : kind === 'continuity' ? continuityIssues : somaticIssues;
+  function handleFixAll(kind: HumanizeKind) {
+    const list = resolveIssueList(kind);
     if (!list || list.length === 0) return;
     const unapplied = list.filter(i => !i.applied);
     if (unapplied.length === 0) { toast('All fixes already applied.', 'success'); return; }
 
-    // Batch all rewrites into a single updateData call so each issue sees
-    // the running result. The closure-based updateData reads stale state
-    // if we loop applyIssueRewrite, so we apply them sequentially against
-    // the same accumulator inside one updater.
     const successIds = new Set<string>();
     const applyAllToText = (text: string) => {
       let result = text;
       unapplied.forEach(issue => {
         if (successIds.has(issue.id)) return;
         const r = tryRewriteInText(result, issue.passage, issue.rewrite);
-        if (r.success) {
-          result = r.text;
-          successIds.add(issue.id);
-        }
+        if (r.success) { result = r.text; successIds.add(issue.id); }
       });
       return result;
     };
@@ -2109,11 +2603,7 @@ Rules:
 
     const successCount = successIds.size;
     const failCount = unapplied.length - successCount;
-    const nextList = list.map(i => successIds.has(i.id) ? { ...i, applied: true } : i);
-    if (kind === 'cons') setConsistencyIssues(nextList);
-    else if (kind === 'pace') setPacingIssues(nextList);
-    else if (kind === 'continuity') setContinuityIssues(nextList);
-    else setSomaticIssues(nextList);
+    commitIssueList(kind, list.map(i => successIds.has(i.id) ? { ...i, applied: true } : i));
 
     if (successCount > 0 && failCount === 0) {
       toast(`Applied ${successCount} fix${successCount === 1 ? '' : 'es'}.`, 'success');
@@ -2445,6 +2935,212 @@ Rules:
                 )}
               </div>
             )}
+
+            {/* ===== HUMANIZATION PASS ===== */}
+            <div className="pt-3 pb-1">
+              <div className="text-[10px] font-bold tracking-widest uppercase text-[var(--ink-4)] px-1">Humanization Pass</div>
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Simile deduplication</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find overused simile vehicles that repeat across the passage, making imagery go stale.</p>
+              <button onClick={checkSimile} disabled={busy === 'simile'} className={btnGhostFull}>
+                {busy === 'simile' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : simileIssues ? 'Re-run check' : 'Run check'}
+              </button>
+              {simileIssues && simileIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">{simileIssues.filter(i => !i.applied).length} of {simileIssues.length} unfixed</div>
+                    <button onClick={() => handleFixAll('simile')} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline" disabled={simileIssues.every(i => i.applied)}>Fix all</button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {simileIssues.map(issue => <IssueCard key={issue.id} issue={issue} applying={applyingId === issue.id} onAccept={() => handleAcceptIssue('simile', issue.id)} onReject={() => handleRejectIssue('simile', issue.id)} />)}
+                  </div>
+                </div>
+              )}
+              {simileIssues && simileIssues.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>No repeated similes.</div>}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Subtext trimming</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find passages that explain an emotion the action already conveyed. Trusts the reader more.</p>
+              <button onClick={checkSubtext} disabled={busy === 'subtext'} className={btnGhostFull}>
+                {busy === 'subtext' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : subtextIssues ? 'Re-run check' : 'Run check'}
+              </button>
+              {subtextIssues && subtextIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">{subtextIssues.filter(i => !i.applied).length} of {subtextIssues.length} unfixed</div>
+                    <button onClick={() => handleFixAll('subtext')} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline" disabled={subtextIssues.every(i => i.applied)}>Fix all</button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {subtextIssues.map(issue => <IssueCard key={issue.id} issue={issue} applying={applyingId === issue.id} onAccept={() => handleAcceptIssue('subtext', issue.id)} onReject={() => handleRejectIssue('subtext', issue.id)} />)}
+                  </div>
+                </div>
+              )}
+              {subtextIssues && subtextIssues.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>No over-explanation found.</div>}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Rhythm rewriting</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find monotonous sentence-length runs. Rewrites mix fragments with longer sentences.</p>
+              <button onClick={checkRhythm} disabled={busy === 'rhythm'} className={btnGhostFull}>
+                {busy === 'rhythm' ? <>Analyzing<span className="dots"><span></span><span></span><span></span></span></> : rhythmIssues ? 'Re-run analysis' : 'Run analysis'}
+              </button>
+              {rhythmResult && (
+                <div className="mt-3 p-3 rounded-lg bg-[var(--bg-3)] grid grid-cols-3 gap-2 text-center text-[11.5px]">
+                  <div><div className="font-bold text-[var(--ink)]">{rhythmResult.mean.toFixed(1)}</div><div className="text-[var(--ink-4)]">avg words</div></div>
+                  <div><div className="font-bold text-[var(--ink)]">{rhythmResult.stddev.toFixed(1)}</div><div className="text-[var(--ink-4)]">stddev</div></div>
+                  <div><div className="font-bold text-[var(--ink)]">{Math.round(rhythmResult.shortFraction * 100)}%</div><div className="text-[var(--ink-4)]">short (&lt;8w)</div></div>
+                </div>
+              )}
+              {rhythmIssues && rhythmIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">{rhythmIssues.filter(i => !i.applied).length} of {rhythmIssues.length} unfixed</div>
+                    <button onClick={() => handleFixAll('rhythm')} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline" disabled={rhythmIssues.every(i => i.applied)}>Fix all</button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {rhythmIssues.map(issue => <IssueCard key={issue.id} issue={issue} applying={applyingId === issue.id} onAccept={() => handleAcceptIssue('rhythm', issue.id)} onReject={() => handleRejectIssue('rhythm', issue.id)} />)}
+                  </div>
+                </div>
+              )}
+              {rhythmIssues && rhythmIssues.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>Rhythm is varied throughout.</div>}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Tonal roughening</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find passages that are too polished or even-keeled. Adds grain and authentic texture.</p>
+              <button onClick={checkTonal} disabled={busy === 'tonal'} className={btnGhostFull}>
+                {busy === 'tonal' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : tonalIssues ? 'Re-run check' : 'Run check'}
+              </button>
+              {tonalIssues && tonalIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">{tonalIssues.filter(i => !i.applied).length} of {tonalIssues.length} unfixed</div>
+                    <button onClick={() => handleFixAll('tonal')} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline" disabled={tonalIssues.every(i => i.applied)}>Fix all</button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {tonalIssues.map(issue => <IssueCard key={issue.id} issue={issue} applying={applyingId === issue.id} onAccept={() => handleAcceptIssue('tonal', issue.id)} onReject={() => handleRejectIssue('tonal', issue.id)} />)}
+                  </div>
+                </div>
+              )}
+              {tonalIssues && tonalIssues.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>Tone has authentic texture.</div>}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Paired adjectives</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find adjective pairs before a noun where both describe the same dimension, adding redundancy.</p>
+              <button onClick={checkPaired} disabled={busy === 'paired'} className={btnGhostFull}>
+                {busy === 'paired' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : pairedIssues ? 'Re-run check' : 'Run check'}
+              </button>
+              {pairedIssues && pairedIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">{pairedIssues.filter(i => !i.applied).length} of {pairedIssues.length} unfixed</div>
+                    <button onClick={() => handleFixAll('paired')} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline" disabled={pairedIssues.every(i => i.applied)}>Fix all</button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {pairedIssues.map(issue => <IssueCard key={issue.id} issue={issue} applying={applyingId === issue.id} onAccept={() => handleAcceptIssue('paired', issue.id)} onReject={() => handleRejectIssue('paired', issue.id)} />)}
+                  </div>
+                </div>
+              )}
+              {pairedIssues && pairedIssues.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>No redundant adjective pairs.</div>}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Appositive closers</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find sentences padded with a comma + renaming noun phrase at the end, adding length without meaning.</p>
+              <button onClick={checkAppos} disabled={busy === 'appos'} className={btnGhostFull}>
+                {busy === 'appos' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : apposIssues ? 'Re-run check' : 'Run check'}
+              </button>
+              {apposIssues && apposIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">{apposIssues.filter(i => !i.applied).length} of {apposIssues.length} unfixed</div>
+                    <button onClick={() => handleFixAll('appos')} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline" disabled={apposIssues.every(i => i.applied)}>Fix all</button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {apposIssues.map(issue => <IssueCard key={issue.id} issue={issue} applying={applyingId === issue.id} onAccept={() => handleAcceptIssue('appos', issue.id)} onReject={() => handleRejectIssue('appos', issue.id)} />)}
+                  </div>
+                </div>
+              )}
+              {apposIssues && apposIssues.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>No appositive closers found.</div>}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Negation correction</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find "not X but Y" constructions that delay the point. Rewrites assert the positive directly.</p>
+              <button onClick={checkNegat} disabled={busy === 'negat'} className={btnGhostFull}>
+                {busy === 'negat' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : negatIssues ? 'Re-run check' : 'Run check'}
+              </button>
+              {negatIssues && negatIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">{negatIssues.filter(i => !i.applied).length} of {negatIssues.length} unfixed</div>
+                    <button onClick={() => handleFixAll('negat')} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline" disabled={negatIssues.every(i => i.applied)}>Fix all</button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {negatIssues.map(issue => <IssueCard key={issue.id} issue={issue} applying={applyingId === issue.id} onAccept={() => handleAcceptIssue('negat', issue.id)} onReject={() => handleRejectIssue('negat', issue.id)} />)}
+                  </div>
+                </div>
+              )}
+              {negatIssues && negatIssues.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>No negation constructions found.</div>}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Anaphora runs</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find three or more consecutive sentences opening with the same word or stem, creating a machine-gun beat.</p>
+              <button onClick={checkTriplet} disabled={busy === 'triplet'} className={btnGhostFull}>
+                {busy === 'triplet' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : tripletIssues ? 'Re-run check' : 'Run check'}
+              </button>
+              {tripletIssues && tripletIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">{tripletIssues.filter(i => !i.applied).length} of {tripletIssues.length} unfixed</div>
+                    <button onClick={() => handleFixAll('triplet')} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline" disabled={tripletIssues.every(i => i.applied)}>Fix all</button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {tripletIssues.map(issue => <IssueCard key={issue.id} issue={issue} applying={applyingId === issue.id} onAccept={() => handleAcceptIssue('triplet', issue.id)} onReject={() => handleRejectIssue('triplet', issue.id)} />)}
+                  </div>
+                </div>
+              )}
+              {tripletIssues && tripletIssues.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>No anaphoric sentence runs found.</div>}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Compound noun density</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find stacked noun phrases that read like copy or AI output. Approve, rename, or mark for cut.</p>
+              <button onClick={checkCompound} disabled={busy === 'compound'} className={btnGhostFull}>
+                {busy === 'compound' ? <>Scanning<span className="dots"><span></span><span></span><span></span></span></> : compoundEntries ? 'Re-run scan' : 'Run scan'}
+              </button>
+              {compoundEntries && compoundEntries.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {compoundEntries.map(entry => <CompoundRow key={entry.id} entry={entry} onAction={applyCompoundAction} />)}
+                </div>
+              )}
+              {compoundEntries && compoundEntries.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>No compound noun clusters found.</div>}
+            </div>
+
+            <div className={editCard}>
+              <h4 className="font-display text-[17px] font-semibold mb-1">Theme announcement</h4>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find narration that states the theme or moral explicitly. Move meaning into incident instead.</p>
+              <button onClick={checkTheme} disabled={busy === 'theme'} className={btnGhostFull}>
+                {busy === 'theme' ? <>Checking<span className="dots"><span></span><span></span><span></span></span></> : themeIssues ? 'Re-run check' : 'Run check'}
+              </button>
+              {themeIssues && themeIssues.length > 0 && (
+                <div className="mt-3">
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="text-xs font-medium text-[var(--ink-2)]">{themeIssues.filter(i => !i.applied).length} of {themeIssues.length} unfixed</div>
+                    <button onClick={() => handleFixAll('theme')} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline" disabled={themeIssues.every(i => i.applied)}>Fix all</button>
+                  </div>
+                  <div className="space-y-2.5 max-h-[360px] overflow-y-auto">
+                    {themeIssues.map(issue => <IssueCard key={issue.id} issue={issue} applying={applyingId === issue.id} onAccept={() => handleAcceptIssue('theme', issue.id)} onReject={() => handleRejectIssue('theme', issue.id)} />)}
+                  </div>
+                </div>
+              )}
+              {themeIssues && themeIssues.length === 0 && <div className="mt-3 flex items-center gap-2 px-3 py-2.5 rounded-lg bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" className="w-4 h-4 flex-shrink-0"><polyline points="20 6 9 17 4 12"/></svg>No theme announcements found.</div>}
+            </div>
           </div>
         </div>
       </div>
@@ -4065,6 +4761,67 @@ function IssueCard({ issue, applying, onAccept, onReject }: {
     </div>
   );
 }
+function CompoundRow({ entry, onAction }: { entry: GlossaryEntry; onAction: (entry: GlossaryEntry, action: 'approved' | 'renamed' | 'cut') => void }) {
+  const [newName, setNewName] = useState('');
+  const [showRename, setShowRename] = useState(false);
+  if (entry.status === 'approved') {
+    return (
+      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-[var(--green-soft)] border border-[var(--green)]/20">
+        <span className="flex-1 text-xs text-[var(--ink-2)] font-medium truncate">{entry.term}</span>
+        <span className="text-[10px] font-bold text-[var(--green)] uppercase">Approved</span>
+      </div>
+    );
+  }
+  if (entry.status === 'renamed') {
+    return (
+      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-[var(--blue-soft)] border border-[var(--blue)]/20">
+        <span className="flex-1 text-xs text-[var(--ink-4)] font-medium truncate line-through">{entry.term}</span>
+        <span className="text-[11px] font-bold text-[var(--blue-deep)]">{entry.newName}</span>
+      </div>
+    );
+  }
+  if (entry.status === 'cut') {
+    return (
+      <div className="flex items-center gap-2 p-2.5 rounded-lg bg-[var(--bg-3)] border border-[var(--line)]">
+        <span className="flex-1 text-xs text-[var(--ink-4)] font-medium truncate line-through">{entry.term}</span>
+        <span className="text-[10px] font-bold text-[var(--ink-4)] uppercase">Cut</span>
+      </div>
+    );
+  }
+  return (
+    <div className="border border-[var(--line)] rounded-lg p-2.5 bg-[var(--bg-2)]">
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <span className="text-xs font-semibold text-[var(--ink)] flex-1">"{entry.term}"</span>
+        <span className="text-[10px] text-[var(--ink-4)] flex-shrink-0">{entry.count}x</span>
+      </div>
+      {entry.example && <p className="text-[11.5px] text-[var(--ink-3)] italic mb-2.5 leading-snug line-clamp-2">{entry.example}</p>}
+      {showRename ? (
+        <div className="flex gap-1.5">
+          <input
+            autoFocus
+            value={newName}
+            onChange={e => setNewName(e.target.value)}
+            placeholder="replacement phrase"
+            className="flex-1 px-2 py-1 rounded border border-[var(--line)] text-xs bg-white focus:border-[var(--blue)] outline-none"
+            onKeyDown={e => {
+              if (e.key === 'Enter' && newName.trim()) onAction({ ...entry, newName: newName.trim() }, 'renamed');
+              if (e.key === 'Escape') { setShowRename(false); setNewName(''); }
+            }}
+          />
+          <button onClick={() => { if (newName.trim()) onAction({ ...entry, newName: newName.trim() }, 'renamed'); }} disabled={!newName.trim()} className="px-2.5 py-1 rounded bg-[var(--blue)] text-white text-xs font-semibold disabled:opacity-40">Apply</button>
+          <button onClick={() => { setShowRename(false); setNewName(''); }} className="px-2 py-1 rounded bg-[var(--bg-3)] text-[var(--ink-3)] text-xs">Cancel</button>
+        </div>
+      ) : (
+        <div className="flex gap-1.5">
+          <button onClick={() => onAction(entry, 'approved')} className="flex-1 px-2 py-1 rounded bg-[var(--green-soft)] text-[var(--green)] text-xs font-semibold border border-[var(--green)]/20">Approve</button>
+          <button onClick={() => setShowRename(true)} className="flex-1 px-2 py-1 rounded bg-[var(--bg-3)] text-[var(--ink-2)] text-xs font-semibold border border-[var(--line)]">Rename</button>
+          <button onClick={() => onAction(entry, 'cut')} className="px-2 py-1 rounded bg-[var(--bg-3)] text-[var(--ink-3)] text-xs font-semibold border border-[var(--line)]">Cut</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Field({ label, hint, children }: any) {
   return (
     <div>
