@@ -4,8 +4,25 @@ type Plan = 'free' | 'pro' | 'studio';
 
 const MONTHLY_LIMITS: Record<Plan, number> = { free: 3, pro: 150, studio: 500 };
 
-export async function checkGenerationLimit(userId: string): Promise<{ allowed: boolean; message?: string }> {
+// Owner accounts bypass the generation limit entirely. Comma-separated list,
+// overridable via env without a code change.
+const FOUNDER_EMAILS = (process.env.FOUNDER_EMAILS || 'matpcul@gmail.com')
+  .split(',')
+  .map(e => e.trim().toLowerCase())
+  .filter(Boolean);
+
+export async function checkGenerationLimit(userId: string, email?: string | null): Promise<{ allowed: boolean; message?: string }> {
   const admin = createAdminClient();
+
+  if (email && FOUNDER_EMAILS.includes(email.toLowerCase())) {
+    // Keep the founder's subscriptions row on the studio plan so client-side
+    // feature gates (which read subscriptions.plan directly) stay unlocked.
+    await admin.from('subscriptions').upsert(
+      { user_id: userId, plan: 'studio' },
+      { onConflict: 'user_id' }
+    );
+    return { allowed: true };
+  }
 
   const { data: sub } = await admin
     .from('subscriptions')
