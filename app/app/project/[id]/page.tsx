@@ -1043,6 +1043,24 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     toast('Stopped watching. Your draft is still generating in the background.', 'success');
   }
 
+  async function abandonQuickDraft() {
+    if (projectId) {
+      try {
+        await fetch('/api/generate/quick-draft', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ projectId }),
+        });
+      } catch { /* best-effort */ }
+    }
+    setQuickJobId(null);
+    setQuickBusy('');
+    setQuickStatus('');
+    setQuickProgress({ done: 0, total: 0 });
+    setQuickJobStartedAt(null);
+    cancelRef.current = false;
+  }
+
   function handleQuickDraftComplete(outline: { title: string; chapters: { title: string; synopsis: string }[] }, chapterTexts: string[], storyBible?: StoryBible | null) {
     const newChapters: Chapter[] = outline.chapters.map((ch, i) => ({
       id: cid(),
@@ -1090,13 +1108,17 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     (async () => {
       const supabase = createClient();
 
-      // Reattach listener to any job that is still running.
+      // Reattach listener to any job that is still running. Ignore jobs
+      // older than 20 minutes -- Inngest retries expire well before that,
+      // so a job still queued/running past that window is an orphan.
+      const stalenessCutoff = new Date(Date.now() - 20 * 60 * 1000).toISOString();
       const { data: activeRows } = await supabase
         .from('generation_jobs')
         .select('id, status, chapters_written, total_chapters, started_at')
         .eq('project_id', projectId)
         .eq('job_type', 'quick_draft')
         .in('status', ['queued', 'running', 'streaming'])
+        .gt('created_at', stalenessCutoff)
         .order('created_at', { ascending: false })
         .limit(1);
       if (cancelled) return;
@@ -1288,6 +1310,16 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
               >
                 {cancelRef.current ? 'Cancelling...' : 'Stop watching (generation keeps running in the background)'}
               </button>
+              {quickStatus === 'Waiting to start...' && (
+                <div className="mt-3">
+                  <button
+                    onClick={abandonQuickDraft}
+                    className="text-xs text-[var(--red)] hover:underline font-medium"
+                  >
+                    Something went wrong? Cancel and start over
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="bg-white border border-[var(--line)] rounded-2xl p-6 shadow-sm">

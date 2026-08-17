@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { inngest } from '@/lib/inngest/client';
 import { checkGenerationLimit, incrementGenerationCount } from '@/lib/checkGenerationLimit';
 
@@ -111,5 +112,34 @@ export async function POST(req: Request) {
       { error: err?.message || 'Internal server error' },
       { status: 500 }
     );
+  }
+}
+
+// Mark all active Quick Draft jobs for a project as failed so the client
+// can reset and the user can start a fresh generation.
+export async function DELETE(req: Request) {
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized', code: 'AUTH' }, { status: 401 });
+
+    const body = await req.json();
+    const { projectId } = body;
+    if (!projectId) return NextResponse.json({ error: 'Missing projectId' }, { status: 400 });
+
+    const admin = createAdminClient();
+    await admin
+      .from('generation_jobs')
+      .update({ status: 'failed', error_message: 'Cancelled by user.' })
+      .eq('user_id', user.id)
+      .eq('project_id', projectId)
+      .eq('job_type', 'quick_draft')
+      .in('status', ['queued', 'running', 'streaming']);
+
+    console.log('[quick-draft] DELETE cancelled active jobs for project', projectId);
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    console.error('[quick-draft] DELETE error:', err?.message ?? err);
+    return NextResponse.json({ error: err?.message || 'Internal server error' }, { status: 500 });
   }
 }
