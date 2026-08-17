@@ -69,6 +69,10 @@ export function GenerationStream({
       if (pollTimer) clearInterval(pollTimer);
     };
 
+    // Counts consecutive polls that see status=queued. After 5 minutes (75 polls
+    // at 4s each) the job has clearly stalled -- Inngest never picked it up.
+    let queuedPollCount = 0;
+
     const checkJobRow = async () => {
       if (cancelled || completedRef.current) return;
       const { data } = await supabase
@@ -87,6 +91,7 @@ export function GenerationStream({
       } else if (data.status === 'failed') {
         finishWithError(data.error_message || 'Generation failed.');
       } else if (data.status === 'running' || data.status === 'streaming') {
+        queuedPollCount = 0;
         const done = data.chapters_written ?? 0;
         const total = data.total_chapters ?? 0;
         onStatus?.({
@@ -98,6 +103,11 @@ export function GenerationStream({
             : 'Generating...',
         });
       } else if (data.status === 'queued') {
+        queuedPollCount++;
+        if (queuedPollCount >= 75) {
+          finishWithError('Generation stalled. Use "Cancel and start over" to try again.');
+          return;
+        }
         onStatus?.({
           phase: 'connecting',
           chaptersComplete: 0,
