@@ -67,6 +67,13 @@ export default function BillingPage() {
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // Hard fallback: if auth or the subscription fetch hangs (flaky mobile
+    // network, stale session refresh), stop showing the spinner after 8s and
+    // render the page with the free-plan default instead of loading forever.
+    const fallback = setTimeout(() => {
+      setSub(prev => prev ?? { plan: 'free', status: 'free', current_period_end: null });
+      setLoading(false);
+    }, 8000);
     async function load() {
       try {
         const supabase = createClient();
@@ -90,6 +97,7 @@ export default function BillingPage() {
       }
     }
     load();
+    return () => clearTimeout(fallback);
   }, [router]);
 
   async function startCheckout(tier: string) {

@@ -52,7 +52,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'mode must be "opening" or "all"' }, { status: 400 });
     }
 
-    const limitCheck = await checkGenerationLimit(user.id);
+    const limitCheck = await checkGenerationLimit(user.id, user.email);
     if (!limitCheck.allowed) {
       return NextResponse.json({ error: limitCheck.message }, { status: 403 });
     }
