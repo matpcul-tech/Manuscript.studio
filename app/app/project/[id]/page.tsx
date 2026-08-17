@@ -995,7 +995,8 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     setQuickJobStartedAt(Date.now());
 
     try {
-      const res = await fetch('/api/generate/quick-draft', {
+      const url = '/api/generate/quick-draft';
+      const res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1010,8 +1011,17 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
           genre: data.genre,
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || json.message || 'Could not start quick draft.');
+      console.log('[quick-draft] POST', url, res.status);
+      const raw = await res.text();
+      let json: any = {};
+      try { json = JSON.parse(raw); } catch { /* empty or non-JSON body */ }
+      if (!res.ok) {
+        if (res.status === 401) {
+          window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
+          return;
+        }
+        throw new Error(json.error || json.message || `HTTP ${res.status}: ${raw.slice(0, 120) || 'empty response'}`);
+      }
       setQuickJobId(json.jobId);
     } catch (e: any) {
       toast(e.message || 'Quick draft failed.', 'error');
