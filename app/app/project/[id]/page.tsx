@@ -1101,6 +1101,10 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   // jobs that outlive any WebSocket). Applied-state lives in localStorage so
   // dismissing a job from one tab doesn't keep it showing in another.
   const [pendingJobs, setPendingJobs] = useState<Array<{ id: string; result_text: string; created_at: string; chapter_count: number }>>([]);
+  // Every completed quick-draft job on the account, across all projects.
+  // Recovery path for drafts that finished under a different project row or
+  // whose import banner was dismissed on another device.
+  const [pastJobs, setPastJobs] = useState<Array<{ id: string; result_text: string; created_at: string; chapter_count: number; word_count: number }>>([]);
 
   useEffect(() => {
     if (!projectId || quickJobId) return;
@@ -1130,6 +1134,37 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
         setQuickProgress({ done: job.chapters_written || 0, total: job.total_chapters || 0 });
         if (job.started_at) setQuickJobStartedAt(new Date(job.started_at).getTime());
         return;
+      }
+
+      // Recovery list: every completed quick-draft job on this account, any
+      // project. Bypasses the localStorage dismissed filter on purpose.
+      const { data: { user } } = await supabase.auth.getUser();
+      if (cancelled) return;
+      if (user) {
+        const { data: allRows } = await supabase
+          .from('generation_jobs')
+          .select('id, result_text, created_at')
+          .eq('user_id', user.id)
+          .eq('job_type', 'quick_draft')
+          .eq('status', 'complete')
+          .order('created_at', { ascending: false })
+          .limit(10);
+        if (cancelled) return;
+        if (allRows) {
+          setPastJobs(allRows
+            .filter((j: any) => j.result_text)
+            .map((j: any) => {
+              let chapterCount = 0;
+              let wordCount = 0;
+              try {
+                const texts: string[] = JSON.parse(j.result_text).chapterTexts || [];
+                chapterCount = texts.length;
+                wordCount = texts.reduce((sum, t) => sum + countWords(t), 0);
+              } catch {}
+              return { id: j.id, result_text: j.result_text, created_at: j.created_at, chapter_count: chapterCount, word_count: wordCount };
+            })
+            .filter(j => j.chapter_count > 0));
+        }
       }
 
       // Find completed jobs not yet applied to this project.
@@ -1413,6 +1448,35 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
                   <span>No voice trained yet. We will write in a clean default voice. For better results, go to the Voice stage first.</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {!quickBusy && pastJobs.length > 0 && (
+            <div className="mt-6 bg-white border border-[var(--line)] rounded-2xl p-6 shadow-sm">
+              <div className="text-sm font-semibold text-[var(--ink)] mb-1">Past generations</div>
+              <p className="text-xs text-[var(--ink-3)] mb-4">
+                Finished drafts saved to your account. Importing one replaces the chapter list in this project.
+              </p>
+              <div className="space-y-2">
+                {pastJobs.map(job => (
+                  <div key={job.id} className="flex items-center justify-between gap-3 px-3 py-2.5 rounded-lg border border-[var(--line)]">
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-[var(--ink)]">
+                        {job.chapter_count} chapter{job.chapter_count === 1 ? '' : 's'} · {job.word_count.toLocaleString()} words
+                      </div>
+                      <div className="text-xs text-[var(--ink-3)]">
+                        {new Date(job.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => importPendingJob(job)}
+                      className="px-3 py-1.5 rounded-md bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white font-semibold text-xs shadow-sm flex-shrink-0"
+                    >
+                      Import
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
