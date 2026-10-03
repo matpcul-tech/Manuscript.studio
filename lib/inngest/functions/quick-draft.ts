@@ -307,16 +307,95 @@ Rules:
       return { outline: parsed, storyBible: bible, bibleStatus };
     });
 
+
+    // Step 2.5 (full drafts only): pause for plan review. The outline and
+    // character canon are surfaced to the client over Realtime AND durably on
+    // the job row (status 'awaiting_review' + result_text), so a backgrounded
+    // tab still receives them from the 4-second poll. The job resumes when
+    // the client approves the plan, possibly edited, or automatically after
+    // 30 minutes so a closed tab never strands a draft. Opening-chapter mode
+    // skips the gate to stay fast.
+    let finalOutline: Outline = outline as Outline;
+    let finalBible: StoryBible = storyBible as StoryBible;
+    if (mode === 'all') {
+      await step.run('surface-plan', async () => {
+        await supabase
+          .from('generation_jobs')
+          .update({
+            status: 'awaiting_review',
+            result_text: JSON.stringify({ planReview: true, outline, storyBible, bibleStatus }),
+          })
+          .eq('id', jobId);
+        await broadcastEvent(jobId, 'plan', { outline, storyBible, bibleStatus, reviewTimeoutMinutes: 30 });
+        await broadcastEvent(jobId, 'status', {
+          phase: 'review',
+          message: 'Plan ready. Review the chapters and character canon, or do nothing and the draft starts on its own.',
+        });
+      });
+
+      const approval = await step.waitForEvent('wait-plan-approval', {
+        event: 'manuscript/plan.approved',
+        timeout: '30 mins',
+        match: 'data.jobId',
+      });
+
+      if (approval) {
+        const a: any = approval.data || {};
+        if (a.outline && Array.isArray(a.outline.chapters) && a.outline.chapters.length > 0) {
+          const cleaned = {
+            title: String(a.outline.title || outline.title || '').slice(0, 300),
+            chapters: a.outline.chapters
+              .filter((c: any) => c && typeof c.title === 'string' && c.title.trim())
+              .slice(0, 40)
+              .map((c: any) => ({
+                title: String(c.title).slice(0, 200),
+                synopsis: String(c.synopsis || '').slice(0, 600),
+              })),
+          };
+          if (cleaned.chapters.length > 0) finalOutline = cleaned;
+        }
+        if (a.storyBible && Array.isArray(a.storyBible.characters)) {
+          finalBible = {
+            protagonist: String(a.storyBible.protagonist || '').slice(0, 200),
+            setting: String(a.storyBible.setting || '').slice(0, 500),
+            characters: a.storyBible.characters
+              .filter((c: any) => c && typeof c.canonical_name === 'string' && c.canonical_name.trim())
+              .slice(0, 60)
+              .map((c: any) => ({
+                canonical_name: String(c.canonical_name).slice(0, 120),
+                role: String(c.role || 'supporting').slice(0, 60),
+                relationship_to_protagonist: String(c.relationship_to_protagonist || '').slice(0, 160),
+                age: c.age ? String(c.age).slice(0, 40) : undefined,
+                description: String(c.description || '').slice(0, 400),
+              })),
+          };
+        }
+      }
+
+      await step.run('resume-after-review', async () => {
+        await supabase
+          .from('generation_jobs')
+          .update({ status: 'running', result_text: null, total_chapters: finalOutline.chapters.length })
+          .eq('id', jobId);
+        await broadcastEvent(jobId, 'status', {
+          phase: 'chapter',
+          chaptersComplete: 0,
+          totalChapters: finalOutline.chapters.length,
+          message: approval ? 'Plan locked. Writing chapters...' : 'No review within 30 minutes. Writing the plan as generated...',
+        });
+      });
+    }
+
     // Step 3..N+2: each chapter is its own step so retries only re-run the
     // failing one.
-    const chaptersToWrite = mode === 'opening' ? 1 : outline.chapters.length;
-    const wordsPerChapter = Math.round(targetWords / outline.chapters.length);
+    const chaptersToWrite = mode === 'opening' ? 1 : finalOutline.chapters.length;
+    const wordsPerChapter = Math.round(targetWords / finalOutline.chapters.length);
     const perChapterTarget = Math.min(wordsPerChapter, 2500);
     const chapterTexts: string[] = [];
 
     for (let i = 0; i < chaptersToWrite; i++) {
       const previousTail = i === 0 ? '' : chapterTexts[i - 1].split(/\s+/).slice(-400).join(' ');
-      const ch = outline.chapters[i];
+      const ch = finalOutline.chapters[i];
 
       const chapterText = await step.run(`chapter-${i}`, async () => {
         await supabase
@@ -337,7 +416,7 @@ Rules:
           ? `Open the book. Establish the world, the voice, and the first conflict or question. Make the reader want to keep going. Open at the first real sentence, no throat-clearing.`
           : `Continue the book. The previous chapter ended like this:\n---\n${previousTail}\n---\nPick up the narrative naturally. Maintain voice, character names, and tone established earlier.`;
 
-        const bible = storyBible as StoryBible | null;
+        const bible = finalBible as StoryBible | null;
         const canonBlock = bible && bible.characters && bible.characters.length > 0
           ? `\n${buildCanonBlock(bible)}\n`
           : '';
@@ -352,7 +431,7 @@ TASK: Write Chapter ${i + 1} of this book. About ${perChapterTarget} words. ${co
 
 Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown.`;
 
-        const userPrompt = `BOOK DESCRIPTION:\n${quickPrompt}\n\nCHAPTER ${i + 1}: ${ch.title}\nSYNOPSIS: ${ch.synopsis}\n\nFULL OUTLINE FOR CONTEXT:\n${outline.chapters.map((c, idx) => `${idx + 1}. ${c.title}: ${c.synopsis}`).join('\n')}\n\nWrite Chapter ${i + 1}.`;
+        const userPrompt = `BOOK DESCRIPTION:\n${quickPrompt}\n\nCHAPTER ${i + 1}: ${ch.title}\nSYNOPSIS: ${ch.synopsis}\n\nFULL OUTLINE FOR CONTEXT:\n${finalOutline.chapters.map((c, idx) => `${idx + 1}. ${c.title}: ${c.synopsis}`).join('\n')}\n\nWrite Chapter ${i + 1}.`;
 
         const response = await anthropic.messages.create({
           model: ANTHROPIC_MODEL,
@@ -392,7 +471,7 @@ Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown
 
     // Step N+3: persist final result and signal done.
     await step.run('save-result', async () => {
-      const result = JSON.stringify({ outline, storyBible, bibleStatus, chapterTexts });
+      const result = JSON.stringify({ outline: finalOutline, storyBible: finalBible, bibleStatus, chapterTexts });
       await supabase
         .from('generation_jobs')
         .update({
@@ -403,8 +482,8 @@ Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown
         })
         .eq('id', jobId);
       await broadcastEvent(jobId, 'done', {
-        outline,
-        storyBible,
+        outline: finalOutline,
+        storyBible: finalBible,
         bibleStatus,
         chapterTexts,
       });

@@ -9,7 +9,7 @@ type CharacterEntry = { canonical_name: string; role: string; relationship_to_pr
 type StoryBible = { protagonist: string; setting: string; characters: CharacterEntry[] };
 
 export type QuickDraftStatus = {
-  phase: 'connecting' | 'outline' | 'chapter' | 'done' | 'error';
+  phase: 'connecting' | 'outline' | 'review' | 'chapter' | 'warning' | 'done' | 'error';
   chaptersComplete: number;
   totalChapters: number;
   message: string;
@@ -21,10 +21,18 @@ export type QuickDraftResult = {
   chapterTexts: string[];
 };
 
+export type QuickDraftPlan = {
+  outline: Outline;
+  storyBible: StoryBible | null;
+  bibleStatus?: 'ok' | 'retried' | 'failed';
+  reviewTimeoutMinutes?: number;
+};
+
 type Props = {
   jobId: string;
   onStatus?: (s: QuickDraftStatus) => void;
   onOutline?: (o: Outline) => void;
+  onPlan?: (p: QuickDraftPlan) => void;
   onChapter?: (ch: { index: number; title: string; text: string }) => void;
   onComplete: (result: QuickDraftResult) => void;
   onError?: (message: string) => void;
@@ -41,6 +49,7 @@ export function GenerationStream({
   jobId,
   onStatus,
   onOutline,
+  onPlan,
   onChapter,
   onComplete,
   onError,
@@ -49,11 +58,20 @@ export function GenerationStream({
   // after the poll has already fired onComplete does not double-apply the
   // chapters into the project.
   const completedRef = useRef(false);
+  // Guards onPlan so the review card appears once, whichever path (broadcast
+  // or poll) delivers the plan first.
+  const planDeliveredRef = useRef(false);
 
   useEffect(() => {
     const supabase = createClient();
     let pollTimer: ReturnType<typeof setInterval> | null = null;
     let cancelled = false;
+
+    const deliverPlan = (plan: QuickDraftPlan) => {
+      if (completedRef.current || planDeliveredRef.current) return;
+      planDeliveredRef.current = true;
+      onPlan?.(plan);
+    };
 
     const finishWithResult = (parsed: QuickDraftResult) => {
       if (completedRef.current) return;
@@ -102,6 +120,29 @@ export function GenerationStream({
             ? `Writing chapter ${done + 1} of ${total}...`
             : 'Generating...',
         });
+      } else if (data.status === 'awaiting_review') {
+        queuedPollCount = 0;
+        // Durable delivery of the plan: the worker stashes it on the job row
+        // while paused, so a tab that missed the broadcast still gets it.
+        if (!planDeliveredRef.current && data.result_text) {
+          try {
+            const parsed = JSON.parse(data.result_text);
+            if (parsed && parsed.planReview && parsed.outline) {
+              deliverPlan({
+                outline: parsed.outline,
+                storyBible: parsed.storyBible ?? null,
+                bibleStatus: parsed.bibleStatus,
+                reviewTimeoutMinutes: 30,
+              });
+            }
+          } catch { /* malformed interim payload; the broadcast path may still deliver */ }
+        }
+        onStatus?.({
+          phase: 'review',
+          chaptersComplete: 0,
+          totalChapters: data.total_chapters ?? 0,
+          message: 'Plan ready for review.',
+        });
       } else if (data.status === 'queued') {
         queuedPollCount++;
         if (queuedPollCount >= 75) {
@@ -134,6 +175,9 @@ export function GenerationStream({
       })
       .on('broadcast', { event: 'outline' }, ({ payload }) => {
         onOutline?.(payload as Outline);
+      })
+      .on('broadcast', { event: 'plan' }, ({ payload }) => {
+        deliverPlan(payload as QuickDraftPlan);
       })
       .on('broadcast', { event: 'chapter' }, ({ payload }) => {
         onChapter?.({
