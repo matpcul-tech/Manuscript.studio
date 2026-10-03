@@ -12,12 +12,15 @@ Built by an indie author who self-publishes fiction.
 
 ## What it does
 
-- **Voice Training** — Paste or upload past writing. The studio builds a reusable profile of cadence, sentence length, word choice, and stylistic habits.
-- **Quick Draft** — Describe the book in a paragraph. Get a chapter outline and an opening chapter written in the trained voice.
-- **Write** — Scene-by-scene or chapter-by-chapter drafting with voice lock, continue-from-cursor, and six rewrite moves on selection.
-- **Edit (Sovereign Prose Validator)** — Multi-layer humanization and quality pass: AI-tell detection, somatic interiority depth, voice consistency, pacing, character continuity, and related checks. Findings link to one-click rewrites. Scoped to scene, chapter, or whole manuscript.
-- **Cover** — Live cover builder with palette presets and title fonts. Exports at 1600×2560 KDP resolution.
-- **Publish / Launch** — KDP walkthrough with generated description variants, backend keywords, categories, pricing suggestions, front matter, back matter, and metadata pack. Export KDP-ready `.docx`, EPUB 3.0, and print interior PDF.
+- **Voice Training**: Paste or upload past writing. Your sample and style notes steer every generation, and a local stylometric voice-match score (sentence rhythm, punctuation habits, diction, dialogue share, function words) measures the finished manuscript against the sample at publish time. The voice lock is verified, not asserted.
+- **Quick Draft**: Describe the book in a paragraph. Get a chapter outline, a character canon (story bible) that locks names before any prose is written, and a full draft or opening chapter in the trained voice. If the canon fails to build, the job warns you visibly instead of drafting without one.
+- **Write**: Scene-by-scene or chapter-by-chapter drafting with voice lock, continue-from-cursor, and six rewrite moves on selection.
+- **Edit (Sovereign Prose Validator)**: Multi-layer humanization and quality pass: AI phrase scan (tracked-phrase density, a tally rather than a detector), somatic interiority depth, voice consistency, pacing, character continuity, and related checks. Findings link to one-click rewrites. Scoped to scene, chapter, or whole manuscript.
+- **Cover**: Live cover builder with palette presets and title fonts. Exports at 1600×2560 KDP resolution and embeds into the EPUB.
+- **Publish / Launch**: KDP walkthrough with generated description variants, backend keywords, categories, pricing suggestions, front matter, back matter, and metadata pack. Exports:
+  - **.docx**: real OOXML via the `docx` library: Word TOC field, heading styles, title/copyright/dedication/epigraph/foreword front matter, scene breaks, gutter margin, footer page numbers.
+  - **EPUB 3**: embedded cover from your design, landmarks nav, scene breaks in markup, full metadata. Validated by epubcheck with zero errors.
+  - **Print interior PDF**: embedded DejaVu Serif (KDP requires embedded fonts), chapters open on recto pages, running heads and folios on body pages only, mirrored margins at your trim size.
 
 Your manuscripts remain yours. We never train on your work.
 
@@ -29,7 +32,7 @@ Your manuscripts remain yours. We never train on your work.
 - Supabase (auth + per-user project storage, RLS-enforced)
 - Anthropic Claude (writing engine, proxied server-side)
 - Stripe (paid plans)
-- jspdf + jszip (client-side EPUB and print PDF)
+- docx + jszip + jspdf (client-side .docx, EPUB 3, and print PDF; DejaVu Serif in `public/fonts` for PDF embedding)
 - Capacitor (iOS / Android)
 - Inngest (long-running generation jobs)
 - Deployed on Vercel
@@ -118,12 +121,15 @@ app/
   login/page.tsx
   page.tsx                   # Public landing
 lib/
-  engine.ts                  # Client helper, scrub patterns
-  exports.ts                 # .doc, EPUB 3.0, print PDF
+  engine.ts                  # Client helper, scrub patterns, AI phrase scan
+  exports.ts                 # .docx (OOXML), EPUB 3, print PDF builders
+  voice-match.ts             # Stylometric sample-vs-manuscript score
   types.ts                   # ProjectData shape + defaults
   checkGenerationLimit.ts
   ai-config.ts               # Single model constant
   supabase/
+scripts/check-exports.ts     # Export harness: builds samples, runs epubcheck
+public/fonts/                # DejaVu Serif faces embedded into print PDFs
 supabase/schema.sql
 middleware.ts                # Protects /app routes, refreshes session
 ```
@@ -137,7 +143,8 @@ middleware.ts                # Protects /app routes, refreshes session
 - Generation limits are enforced server-side against the `subscriptions` table.
 - Long jobs can be tracked via `generation_jobs` (Inngest + Supabase Realtime).
 - Project data is stored as JSONB per user with RLS. Voice profiles are separate and reusable across projects.
-- Exports are generated client-side (no server file storage of manuscripts).
+- Exports are generated client-side (no server file storage of manuscripts). `npm run check:exports` builds sample files through the real builders, asserts their structure, and runs epubcheck when it is available; the EPUB ships only epubcheck-clean.
+- The AI phrase scan counts tracked phrases per 1,000 words. It is a tally of known tells, not an AI detector, and the UI says so.
 
 Model used for generation is set in `lib/ai-config.ts`. Scrub patterns live in `lib/engine.ts`.
 
@@ -149,6 +156,7 @@ Model used for generation is set in `lib/ai-config.ts`. Scrub patterns live in `
 npm run dev          # next dev
 npm run build        # production build
 npm run lint         # next lint
+npm run check:exports # build sample .docx/.epub/.pdf and validate (epubcheck)
 npx tsc --noEmit     # type-check
 npm run cap:sync     # Capacitor sync
 npm run cap:ios      # open iOS project
@@ -164,13 +172,17 @@ npm run cap:android  # open Android project
 - Voice training and voice-locked drafting
 - Quick Draft
 - Multi-check humanization + continuity pass
-- Cover designer (KDP resolution)
-- KDP-ready exports (.docx, EPUB 3.0, print PDF)
+- Cover designer (KDP resolution, embedded into the EPUB)
+- Real exports: OOXML .docx with a Word TOC field, epubcheck-clean EPUB 3 with embedded cover, print PDF with embedded fonts, recto chapter starts, and running heads
+- Stylometric voice-match score in the Publish pre-flight
+- Story bible retry with a visible warning when the character canon cannot be built
 - Landing page, pricing, and free → paid path
 - Capacitor mobile scaffolding
 - Generation usage tracking and plan limits
 
 **Next**
+- Editable story bible step between outline and draft (correct canon before prose runs)
+- Before/after demo chapter proving the voice lock on a public sample
 - Stronger per-chapter / per-scene snapshots and one-tap undo
 - Full Stripe gate on exports and higher tiers (if not already live)
 - AI cover backgrounds
