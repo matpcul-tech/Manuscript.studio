@@ -134,7 +134,7 @@ export async function DELETE(req: Request) {
       .eq('user_id', user.id)
       .eq('project_id', projectId)
       .eq('job_type', 'quick_draft')
-      .in('status', ['queued', 'running', 'streaming']);
+      .in('status', ['queued', 'running', 'streaming', 'awaiting_review']);
 
     console.log('[quick-draft] DELETE cancelled active jobs for project', projectId);
     return NextResponse.json({ ok: true });

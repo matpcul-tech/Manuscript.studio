@@ -7,8 +7,8 @@ import { createClient } from '@/lib/supabase/client';
 import { callEngine, scrubText, countWords, computeAIScore, measureSentenceVariance, type AIScore, type SentenceVariance } from '@/lib/engine';
 import { exportDocx, exportEpub, exportPdf, exportBundle, type EpubCover } from '@/lib/exports';
 import { voiceMatchScore } from '@/lib/voice-match';
-import { defaultProjectData, cid, type ProjectData, type Chapter, type Scene, type StoryBible } from '@/lib/types';
-import { GenerationStream } from '@/components/GenerationStream';
+import { defaultProjectData, cid, type ProjectData, type Chapter, type Scene, type StoryBible, type CharacterEntry } from '@/lib/types';
+import { GenerationStream, type QuickDraftPlan } from '@/components/GenerationStream';
 
 const STAGES = [
   { id: 'setup', label: 'Setup' },
@@ -212,7 +212,7 @@ export default function ProjectPage() {
         .select('id')
         .eq('project_id', id)
         .eq('job_type', 'quick_draft')
-        .in('status', ['queued', 'running', 'streaming'])
+        .in('status', ['queued', 'running', 'streaming', 'awaiting_review'])
         .limit(1)
         .maybeSingle();
       if (cancelled) return;
@@ -1034,7 +1034,30 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   const [quickJobId, setQuickJobId] = useState<string | null>(null);
   const [quickElapsed, setQuickElapsed] = useState(0);
   const [quickJobStartedAt, setQuickJobStartedAt] = useState<number | null>(null);
+  const [planReview, setPlanReview] = useState<QuickDraftPlan | null>(null);
+  const [planSubmitting, setPlanSubmitting] = useState(false);
   const cancelRef = useRef(false);
+
+  async function approvePlan(outline: { title: string; chapters: { title: string; synopsis: string }[] }, storyBible: StoryBible) {
+    if (!quickJobId) return;
+    setPlanSubmitting(true);
+    try {
+      const res = await fetch('/api/generate/quick-draft/approve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId: quickJobId, outline, storyBible }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'Could not approve the plan.');
+      setPlanReview(null);
+      setQuickStatus('Plan locked. Writing chapters...');
+      setQuickProgress({ done: 0, total: outline.chapters.length });
+    } catch (e: any) {
+      toast(e.message || 'Could not approve the plan.', 'error');
+    } finally {
+      setPlanSubmitting(false);
+    }
+  }
 
   useEffect(() => {
     if (!quickBusy || !quickJobStartedAt) { setQuickElapsed(0); return; }
@@ -1101,6 +1124,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     setQuickStatus('');
     setQuickProgress({ done: 0, total: 0 });
     setQuickJobStartedAt(null);
+    setPlanReview(null);
     toast('Stopped watching. Your draft is still generating in the background.', 'success');
   }
 
@@ -1119,6 +1143,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     setQuickStatus('');
     setQuickProgress({ done: 0, total: 0 });
     setQuickJobStartedAt(null);
+    setPlanReview(null);
     cancelRef.current = false;
   }
 
@@ -1149,6 +1174,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     } else {
       toast(`Drafted ${draftedCount} chapter${draftedCount === 1 ? '' : 's'} plus ${remaining} chapter outline${remaining === 1 ? '' : 's'} to keep going.`, 'success');
     }
+    setPlanReview(null);
     setQuickJobId(null);
     setQuickBusy('');
     setQuickStatus('');
@@ -1182,7 +1208,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
         .select('id, status, chapters_written, total_chapters, started_at')
         .eq('project_id', projectId)
         .eq('job_type', 'quick_draft')
-        .in('status', ['queued', 'running', 'streaming'])
+        .in('status', ['queued', 'running', 'streaming', 'awaiting_review'])
         .gt('created_at', stalenessCutoff)
         .order('created_at', { ascending: false })
         .limit(1);
@@ -1329,9 +1355,15 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
         setQuickStatus(s.message);
         setQuickProgress({ done: s.chaptersComplete, total: s.totalChapters });
       }}
+      onPlan={p => {
+        setPlanReview(p);
+        setQuickStatus('Plan ready for review');
+        setQuickProgress({ done: 0, total: p.outline.chapters.length });
+      }}
       onComplete={({ outline, chapterTexts, storyBible }) => handleQuickDraftComplete(outline, chapterTexts, storyBible)}
       onError={msg => {
         toast(msg, 'error');
+        setPlanReview(null);
         setQuickJobId(null);
         setQuickBusy('');
         setQuickStatus('');
@@ -1368,7 +1400,9 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
             Describe your book in a few sentences. We will outline the chapters and draft the opening in your voice.
           </p>
 
-          {quickBusy ? (
+          {quickBusy ? (planReview ? (
+            <PlanReviewCard plan={planReview} submitting={planSubmitting} onApprove={approvePlan} />
+          ) : (
             <div className="bg-white border border-[var(--line)] rounded-2xl p-10 text-center shadow-sm">
               <div className="w-14 h-14 mx-auto rounded-full bg-[var(--blue-soft)] grid place-items-center mb-4">
                 <span className="dots text-[var(--blue-deep)]" style={{ fontSize: 20 }}><span></span><span></span><span></span></span>
@@ -1417,7 +1451,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
                 </div>
               )}
             </div>
-          ) : (
+          )) : (
             <div className="bg-white border border-[var(--line)] rounded-2xl p-6 shadow-sm">
               <Field label="Your book in your own words" hint="A paragraph is enough. The more specific, the better the opening.">
                 <textarea
@@ -3420,6 +3454,132 @@ function CoverStage({ data, updateData, toast, plan }: any) {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ==================== QUICK DRAFT PLAN REVIEW ==================== */
+// Shown while a Quick Draft job is paused in awaiting_review. The writer can
+// correct chapter titles and synopses and the character canon before a single
+// line of prose is generated; approving resumes the job with the edits, and
+// doing nothing resumes it unchanged after 30 minutes.
+function PlanReviewCard({ plan, submitting, onApprove }: {
+  plan: QuickDraftPlan;
+  submitting: boolean;
+  onApprove: (outline: { title: string; chapters: { title: string; synopsis: string }[] }, storyBible: StoryBible) => void;
+}) {
+  const [title, setTitle] = useState(plan.outline.title || '');
+  const [chapters, setChapters] = useState(plan.outline.chapters.map(c => ({ ...c })));
+  const [bible, setBible] = useState<StoryBible>(plan.storyBible && Array.isArray(plan.storyBible.characters)
+    ? { ...plan.storyBible, characters: plan.storyBible.characters.map(c => ({ ...c })) }
+    : { protagonist: '', setting: '', characters: [] });
+
+  const setCh = (i: number, k: 'title' | 'synopsis', v: string) =>
+    setChapters(cs => cs.map((c, ci) => ci === i ? { ...c, [k]: v } : c));
+  const setChar = (i: number, k: keyof CharacterEntry, v: string) =>
+    setBible(b => ({ ...b, characters: b.characters.map((c, ci) => ci === i ? { ...c, [k]: v } : c) }));
+
+  const canApprove = chapters.filter(c => c.title.trim()).length > 0 && !submitting;
+
+  return (
+    <div className="bg-white border border-[var(--line)] rounded-2xl p-6 md:p-8 shadow-sm text-left">
+      <h3 className="font-display text-2xl font-semibold mb-1">Review the plan</h3>
+      <p className="text-sm text-[var(--ink-3)] mb-5">
+        Nothing has been written yet. Fix chapter titles, synopses, and the character canon below; names in the canon are locked across the whole draft. Approve to start writing, or do nothing and the draft starts on its own in about 30 minutes.
+      </p>
+
+      {plan.bibleStatus === 'failed' && (
+        <div className="mb-5 px-4 py-3 rounded-lg bg-[var(--amber-soft)] text-[var(--amber)] text-sm font-medium">
+          The character canon could not be built from this outline. Add your characters below so names stay consistent, or approve without one and review names after drafting.
+        </div>
+      )}
+
+      <label className="block text-xs font-semibold text-[var(--ink-3)] uppercase tracking-wide mb-1.5">Working title</label>
+      <input className={inputCls + ' mb-6'} value={title} onChange={e => setTitle(e.target.value)} placeholder="Working title" />
+
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="font-display text-[16px] font-semibold">Chapters ({chapters.length})</h4>
+        <button
+          onClick={() => setChapters(cs => [...cs, { title: `Chapter ${cs.length + 1}`, synopsis: '' }])}
+          className="text-xs font-semibold text-[var(--blue-deep)] hover:underline"
+        >+ Add chapter</button>
+      </div>
+      <div className="space-y-3 mb-6 max-h-[340px] overflow-y-auto pr-1">
+        {chapters.map((c, i) => (
+          <div key={i} className="border border-[var(--line-2)] rounded-xl p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-semibold text-[var(--ink-4)] w-6 flex-shrink-0 text-right">{i + 1}.</span>
+              <input className={inputCls} value={c.title} onChange={e => setCh(i, 'title', e.target.value)} placeholder="Chapter title" />
+              <button
+                onClick={() => setChapters(cs => cs.length > 1 ? cs.filter((_, ci) => ci !== i) : cs)}
+                disabled={chapters.length <= 1}
+                className="text-xs text-[var(--ink-4)] hover:text-[var(--red)] font-medium flex-shrink-0 disabled:opacity-40"
+                title="Remove chapter"
+              >Remove</button>
+            </div>
+            <textarea
+              className={inputCls + ' resize-none'}
+              rows={2}
+              value={c.synopsis}
+              onChange={e => setCh(i, 'synopsis', e.target.value)}
+              placeholder="One sentence: what happens in this chapter"
+            />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="font-display text-[16px] font-semibold">Character canon</h4>
+        <button
+          onClick={() => setBible(b => ({ ...b, characters: [...b.characters, { canonical_name: '', role: 'supporting', relationship_to_protagonist: '', description: '' }] }))}
+          className="text-xs font-semibold text-[var(--blue-deep)] hover:underline"
+        >+ Add character</button>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+        <div>
+          <label className="block text-xs font-semibold text-[var(--ink-3)] uppercase tracking-wide mb-1.5">Protagonist</label>
+          <input className={inputCls} value={bible.protagonist} onChange={e => setBible(b => ({ ...b, protagonist: e.target.value }))} placeholder="Full canonical name" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-[var(--ink-3)] uppercase tracking-wide mb-1.5">Setting</label>
+          <input className={inputCls} value={bible.setting} onChange={e => setBible(b => ({ ...b, setting: e.target.value }))} placeholder="Primary time and place" />
+        </div>
+      </div>
+      <div className="space-y-2.5 mb-6 max-h-[300px] overflow-y-auto pr-1">
+        {bible.characters.length === 0 && (
+          <p className="text-xs text-[var(--ink-4)] py-2">No characters locked yet. Add the names that must stay consistent across chapters.</p>
+        )}
+        {bible.characters.map((c, i) => (
+          <div key={i} className="border border-[var(--line-2)] rounded-xl p-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+              <input className={inputCls} value={c.canonical_name} onChange={e => setChar(i, 'canonical_name', e.target.value)} placeholder="Canonical name" />
+              <input className={inputCls} value={c.role} onChange={e => setChar(i, 'role', e.target.value)} placeholder="Role (protagonist, antagonist...)" />
+              <input className={inputCls} value={c.relationship_to_protagonist} onChange={e => setChar(i, 'relationship_to_protagonist', e.target.value)} placeholder="Relationship to protagonist" />
+            </div>
+            <div className="flex items-start gap-2">
+              <input className={inputCls} value={c.description} onChange={e => setChar(i, 'description', e.target.value)} placeholder="One sentence: appearance and core trait" />
+              <button
+                onClick={() => setBible(b => ({ ...b, characters: b.characters.filter((_, ci) => ci !== i) }))}
+                className="text-xs text-[var(--ink-4)] hover:text-[var(--red)] font-medium flex-shrink-0 mt-2.5"
+              >Remove</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={() => onApprove(
+          { title: title.trim(), chapters: chapters.filter(c => c.title.trim()) },
+          { ...bible, characters: bible.characters.filter(c => c.canonical_name.trim()) }
+        )}
+        disabled={!canApprove}
+        className={btnPrimaryFull + ' disabled:opacity-50'}
+      >
+        {submitting ? <>Locking plan<span className="dots"><span></span><span></span><span></span></span></> : 'Approve and write the draft'}
+      </button>
+      <p className="text-xs text-[var(--ink-4)] text-center mt-3">
+        The generation keeps running in the background once approved. Closing this tab is fine.
+      </p>
     </div>
   );
 }
