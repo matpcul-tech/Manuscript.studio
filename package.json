@@ -12,7 +12,8 @@
     "lint": "next lint",
     "cap:sync": "cap sync",
     "cap:ios": "cap open ios",
-    "cap:android": "cap open android"
+    "cap:android": "cap open android",
+    "check:exports": "tsx scripts/check-exports.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.27.0",
@@ -25,6 +26,7 @@
     "@supabase/ssr": "^0.5.1",
     "@supabase/supabase-js": "^2.45.4",
     "@vercel/analytics": "^2.0.1",
+    "docx": "^9.8.1",
     "inngest": "^4.4.0",
     "jspdf": "^2.5.2",
     "jszip": "^3.10.1",
@@ -44,6 +46,7 @@
     "eslint-config-next": "14.2.35",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.2"
   }
 }

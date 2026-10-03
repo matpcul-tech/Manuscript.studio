@@ -114,6 +114,10 @@ export type AIScore = {
   byPattern: { label: string; count: number }[];
 };
 
+// This is a tracked-phrase tally, not an AI detector. It counts the stock
+// phrases and punctuation habits in TELL_PATTERNS per 1,000 words. A clean
+// score means none of the tracked phrases appear; it is not a guarantee
+// about how any platform or reader will classify the prose.
 export function computeAIScore(text: string): AIScore {
   const totalWords = countWords(text);
   const byPattern: { label: string; count: number }[] = [];
@@ -131,7 +135,7 @@ export function computeAIScore(text: string): AIScore {
   let color: string;
   if (density < 0.5) {
     grade = 'A';
-    risk = 'No discernible AI fingerprint';
+    risk = 'Clean. No tracked AI phrases found.';
     color = '#10b981';
   } else if (density < 1.5) {
     grade = 'B';
@@ -143,11 +147,11 @@ export function computeAIScore(text: string): AIScore {
     color = '#f59e0b';
   } else if (density < 5.0) {
     grade = 'D';
-    risk = 'Heavy. Likely to flag on KDP review.';
+    risk = 'Heavy phrase density. Scrub before publishing.';
     color = '#f59e0b';
   } else {
     grade = 'F';
-    risk = 'Will read as AI-generated. Scrub required.';
+    risk = 'Saturated with stock AI phrasing. Scrub required.';
     color = '#ef4444';
   }
   return { density, totalTells, totalWords, grade, risk, color, byPattern };

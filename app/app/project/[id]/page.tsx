@@ -5,7 +5,8 @@ import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { callEngine, scrubText, countWords, computeAIScore, measureSentenceVariance, type AIScore, type SentenceVariance } from '@/lib/engine';
-import { exportDocx, exportEpub, exportPdf, exportBundle } from '@/lib/exports';
+import { exportDocx, exportEpub, exportPdf, exportBundle, type EpubCover } from '@/lib/exports';
+import { voiceMatchScore } from '@/lib/voice-match';
 import { defaultProjectData, cid, type ProjectData, type Chapter, type Scene, type StoryBible } from '@/lib/types';
 import { GenerationStream } from '@/components/GenerationStream';
 
@@ -62,6 +63,66 @@ const COVER_PRESETS: Record<string, { bg: string[]; text: string; overlay: numbe
   rust: { bg: ['#c46a3f', '#6b2f15'], text: '#f4ead4', overlay: 30 },
   onyx: { bg: ['#0a0a0a', '#2a2a2a'], text: '#f4ead4', overlay: 40 },
 };
+
+function wrapCanvasText(ctx: any, text: string, maxW: number) {
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let line = '';
+  words.forEach(w => {
+    const t = line ? line + ' ' + w : w;
+    if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; }
+    else line = t;
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+// Draw the cover onto an offscreen canvas. Used by the Cover stage download
+// button and by the EPUB export, so the file KDP gets carries the same
+// cover the writer designed.
+function renderCoverCanvas(data: ProjectData): HTMLCanvasElement {
+  const preset = COVER_PRESETS[data.coverPreset] || COVER_PRESETS['midnight'];
+  const canvas = document.createElement('canvas');
+  canvas.width = 1600; canvas.height = 2560;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  grad.addColorStop(0, preset.bg[0]);
+  grad.addColorStop(1, preset.bg[1]);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const og = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  og.addColorStop(0, 'rgba(0,0,0,0)');
+  og.addColorStop(1, `rgba(0,0,0,${data.overlayAmt / 100})`);
+  ctx.fillStyle = og;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = data.titleColor;
+  ctx.font = '500 56px Oswald, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText((data.author || 'AUTHOR NAME').toUpperCase(), 180, 250);
+  const ts = data.titleSize * 5;
+  ctx.font = `700 ${ts}px ${data.titleFont}, serif`;
+  const wrapped = wrapCanvasText(ctx, data.title || 'Your Title Here', canvas.width - 360);
+  let y = canvas.height - 700;
+  wrapped.forEach((ln, i) => ctx.fillText(ln, 180, y + i * ts * 1.1));
+  if (data.subtitle) {
+    ctx.font = 'italic 500 64px "Cormorant Garamond", serif';
+    ctx.globalAlpha = 0.85;
+    const sy = y + wrapped.length * ts * 1.1 + 60;
+    const swrap = wrapCanvasText(ctx, data.subtitle, canvas.width - 360);
+    swrap.forEach((ln, i) => ctx.fillText(ln, 180, sy + i * 80));
+    ctx.globalAlpha = 1;
+  }
+  ctx.strokeStyle = data.titleColor + '50';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(180, canvas.height - 220);
+  ctx.lineTo(canvas.width - 180, canvas.height - 220);
+  ctx.stroke();
+  ctx.font = '500 52px Oswald, sans-serif';
+  ctx.fillText((data.author || 'AUTHOR NAME').toUpperCase(), 180, canvas.height - 140);
+  return canvas;
+}
+
 
 export default function ProjectPage() {
   const params = useParams();
@@ -1665,7 +1726,7 @@ function EditStage({ data, updateData, toast, activeScene, plan }: any) {
 
   const target = getTarget();
 
-  // Live AI Detection Score - recomputes whenever target text changes
+  // Live AI phrase scan - recomputes whenever target text changes
   const aiScore: AIScore = computeAIScore(target.text);
 
   function applyScrub() {
@@ -2724,7 +2785,7 @@ Rules:
     <div className="h-full overflow-y-auto p-9">
       <div className="max-w-[1320px] mx-auto">
         <h2 className="font-display text-3xl font-semibold mb-1.5">Edit and polish</h2>
-        <p className="text-[var(--ink-3)] mb-6">AI Detection Score, voice consistency, pacing, structure, and somatic interiority. Each check finds specific issues and applies rewrites with one click.</p>
+        <p className="text-[var(--ink-3)] mb-6">AI phrase scan, voice consistency, pacing, structure, and somatic interiority. Each check finds specific issues and applies rewrites with one click.</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-5">
           <div className="bg-white rounded-xl border border-[var(--line)] p-10 shadow-sm max-h-[calc(100vh-180px)] overflow-y-auto font-serif text-[16px] leading-[1.78] text-[var(--ink)] whitespace-pre-wrap">
@@ -2749,7 +2810,7 @@ Rules:
 
             <div className={editCard}>
               <div className="flex items-center justify-between mb-1">
-                <h4 className="font-display text-[17px] font-semibold">AI Detection Score</h4>
+                <h4 className="font-display text-[17px] font-semibold">AI Phrase Scan</h4>
                 <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--ink-4)]">Live</span>
               </div>
               <p className="text-xs text-[var(--ink-3)] mb-4">How likely this reads as AI-generated. Tuned against the patterns KDP review flags.</p>
@@ -3263,44 +3324,7 @@ function CoverStage({ data, updateData, toast, plan }: any) {
   const preset = COVER_PRESETS[data.coverPreset];
 
   function downloadCover() {
-    const canvas = document.createElement('canvas');
-    canvas.width = 1600; canvas.height = 2560;
-    const ctx = canvas.getContext('2d')!;
-    const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
-    grad.addColorStop(0, preset.bg[0]);
-    grad.addColorStop(1, preset.bg[1]);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const og = ctx.createLinearGradient(0, 0, 0, canvas.height);
-    og.addColorStop(0, 'rgba(0,0,0,0)');
-    og.addColorStop(1, `rgba(0,0,0,${data.overlayAmt / 100})`);
-    ctx.fillStyle = og;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = data.titleColor;
-    ctx.font = '500 56px Oswald, sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillText((data.author || 'AUTHOR NAME').toUpperCase(), 180, 250);
-    const ts = data.titleSize * 5;
-    ctx.font = `700 ${ts}px ${data.titleFont}, serif`;
-    const wrapped = wrap(ctx, data.title || 'Your Title Here', canvas.width - 360);
-    let y = canvas.height - 700;
-    wrapped.forEach((ln, i) => ctx.fillText(ln, 180, y + i * ts * 1.1));
-    if (data.subtitle) {
-      ctx.font = 'italic 500 64px "Cormorant Garamond", serif';
-      ctx.globalAlpha = 0.85;
-      const sy = y + wrapped.length * ts * 1.1 + 60;
-      const swrap = wrap(ctx, data.subtitle, canvas.width - 360);
-      swrap.forEach((ln, i) => ctx.fillText(ln, 180, sy + i * 80));
-      ctx.globalAlpha = 1;
-    }
-    ctx.strokeStyle = data.titleColor + '50';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(180, canvas.height - 220);
-    ctx.lineTo(canvas.width - 180, canvas.height - 220);
-    ctx.stroke();
-    ctx.font = '500 52px Oswald, sans-serif';
-    ctx.fillText((data.author || 'AUTHOR NAME').toUpperCase(), 180, canvas.height - 140);
+    const canvas = renderCoverCanvas(data);
     canvas.toBlob(blob => {
       if (!blob) return;
       const url = URL.createObjectURL(blob);
@@ -3311,19 +3335,6 @@ function CoverStage({ data, updateData, toast, plan }: any) {
       URL.revokeObjectURL(url);
       toast('Cover downloaded (1600 × 2560).', 'success');
     });
-  }
-
-  function wrap(ctx: any, text: string, maxW: number) {
-    const words = text.split(' ');
-    const lines: string[] = [];
-    let line = '';
-    words.forEach(w => {
-      const t = line ? line + ' ' + w : w;
-      if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; }
-      else line = t;
-    });
-    if (line) lines.push(line);
-    return lines;
   }
 
   return (
@@ -3420,6 +3431,7 @@ function PublishStage({ data, updateData, toast, plan }: any) {
   const totalW = data.chapters.reduce((n: number, ch: Chapter) => n + ch.scenes.reduce((m: number, sc: Scene) => m + countWords(sc.body), 0), 0);
   const fullText = data.chapters.map((ch: Chapter) => ch.scenes.map((s: Scene) => s.body).join('\n\n')).join('\n\n');
   const score = computeAIScore(fullText);
+  const voiceMatch = data.voiceSample && totalW > 0 ? voiceMatchScore(data.voiceSample, fullText) : null;
   const scoreOk = score.grade === 'A' || score.grade === 'B';
   const scoreWarn = score.grade === 'C' || score.grade === 'D';
   const scoreBad = score.grade === 'F';
@@ -3432,11 +3444,21 @@ function PublishStage({ data, updateData, toast, plan }: any) {
     { label: `${data.chapters.length} chapter${data.chapters.length === 1 ? '' : 's'}`, ok: data.chapters.length > 0 },
     {
       label: totalW === 0
-        ? 'AI Detection Score: not yet measured'
-        : `AI Detection Score: ${score.grade} · ${score.density.toFixed(2)} per 1k words`,
+        ? 'AI phrase scan: not yet measured'
+        : `AI phrase scan: ${score.grade} · ${score.density.toFixed(2)} tracked phrases per 1k words`,
       ok: totalW === 0 ? false : scoreOk,
       warn: totalW > 0 && scoreWarn,
       bad: totalW > 0 && scoreBad,
+    },
+    {
+      label: !data.voiceSample
+        ? 'Voice match: no voice sample trained'
+        : voiceMatch
+          ? `Voice match: ${voiceMatch.score} · ${voiceMatch.verdict} (sample vs. manuscript)`
+          : 'Voice match: needs at least 150 words on each side',
+      ok: !!voiceMatch && voiceMatch.score >= 70,
+      warn: !voiceMatch || (voiceMatch.score >= 50 && voiceMatch.score < 70),
+      bad: !!voiceMatch && voiceMatch.score < 50,
     },
     { label: `Trim size: ${data.trim} in`, ok: true },
   ];
@@ -3444,8 +3466,16 @@ function PublishStage({ data, updateData, toast, plan }: any) {
   async function doExport(kind: string) {
     setBusy(kind);
     try {
-      if (kind === 'docx') exportDocx(data);
-      else if (kind === 'epub') await exportEpub(data);
+      if (kind === 'docx') await exportDocx(data);
+      else if (kind === 'epub') {
+        let cover: EpubCover | undefined;
+        try {
+          const canvas = renderCoverCanvas(data);
+          const blob: Blob | null = await new Promise(res => canvas.toBlob(b => res(b), 'image/jpeg', 0.9));
+          if (blob) cover = { data: await blob.arrayBuffer(), mediaType: 'image/jpeg' };
+        } catch { /* no cover is still a valid EPUB; KDP takes the cover file separately */ }
+        await exportEpub(data, cover);
+      }
       else if (kind === 'pdf') await exportPdf(data);
       else if (kind === 'bundle') exportBundle(data);
       toast(kind.toUpperCase() + ' exported.', 'success');
@@ -3486,9 +3516,9 @@ function PublishStage({ data, updateData, toast, plan }: any) {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[
-            { id: 'docx', title: 'Manuscript (.doc)', meta: 'Editable Word with chapter headings, front matter, page breaks.', body: 'Title page, copyright, dedication, TOC, manuscript body, bio. Mirrored gutters.', icon: 'doc' },
-            { id: 'epub', title: 'Kindle EPUB', meta: 'EPUB 3.0 with nav.xhtml. KDP no longer accepts MOBI.', body: 'Built for KDP Kindle. Includes TOC, chapter ordering, metadata.', icon: 'epub' },
-            { id: 'pdf', title: 'Print interior PDF', meta: `Trim size ${data.trim} in. Mirrored margins.`, body: 'Upload as interior when creating a paperback on KDP. Pair with cover.', icon: 'pdf' },
+            { id: 'docx', title: 'Manuscript (.docx)', meta: 'Real Word document (OOXML). TOC field, heading styles, gutter margin.', body: 'Title page, copyright, dedication, epigraph, foreword, Word TOC, chapters with scene breaks, bio, back matter. Page numbers in the footer.', icon: 'doc' },
+            { id: 'epub', title: 'Kindle EPUB', meta: 'EPUB 3 with embedded cover and nav.xhtml. Validated with epubcheck.', body: 'Cover from your design, TOC, chapter ordering, scene breaks in markup, full metadata. KDP no longer accepts MOBI.', icon: 'epub' },
+            { id: 'pdf', title: 'Print interior PDF', meta: `Trim ${data.trim} in. Embedded fonts, mirrored margins, chapters on recto pages.`, body: 'Running heads, folios, front and back matter. Upload as the interior for a KDP paperback; proof it before ordering author copies.', icon: 'pdf' },
             { id: 'bundle', title: 'Plain text + project bundle', meta: 'Backup or third-party formatter.', body: 'Includes voice profile so you can resume on a new device.', icon: 'bundle' },
           ].map(card => (
             <div key={card.id} className="bg-white border border-[var(--line)] rounded-2xl p-6 shadow-sm flex flex-col">
@@ -3507,7 +3537,7 @@ function PublishStage({ data, updateData, toast, plan }: any) {
                 </div>
               ) : (
                 <button onClick={() => doExport(card.id)} disabled={!!busy} className={card.id === 'bundle' ? btnGhostFull : btnPrimaryFull}>
-                  {busy === card.id ? <>Building<span className="dots"><span></span><span></span><span></span></span></> : `Export ${card.id === 'bundle' ? 'bundle' : `.${card.id === 'docx' ? 'doc' : card.id}`}`}
+                  {busy === card.id ? <>Building<span className="dots"><span></span><span></span><span></span></span></> : `Export ${card.id === 'bundle' ? 'bundle' : `.${card.id}`}`}
                 </button>
               )}
             </div>
