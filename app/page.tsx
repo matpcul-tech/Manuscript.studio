@@ -512,6 +512,60 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* PROOF: voice lock, measured */}
+      <section id="proof" className="py-24 bg-[var(--bg-2)]">
+        <div className="max-w-5xl mx-auto px-6">
+          <div className="text-center mb-14">
+            <div className="text-xs font-bold tracking-[0.15em] text-[var(--blue-deep)] uppercase mb-3">Proof</div>
+            <h2 className="font-display text-4xl md:text-5xl font-semibold leading-tight">
+              The voice lock, measured.
+            </h2>
+            <p className="text-[var(--ink-3)] mt-4 max-w-2xl mx-auto leading-relaxed">
+              Same beat, drafted twice by the engine: once with no voice sample, once with a 170 word sample loaded. The scores below come from the voice match and phrase scan that ship inside the Studio, run on these exact passages. Not a vibe. A number.
+            </p>
+          </div>
+
+          <div className="bg-white border border-[var(--line)] rounded-xl p-5 mb-8 shadow-sm">
+            <div className="text-xs font-bold tracking-[0.12em] text-[var(--ink-4)] uppercase mb-2">The writer's sample</div>
+            <p className="text-[14px] text-[var(--ink-2)] leading-relaxed font-serif italic">
+              "The gate hangs on one hinge and I let it. Dad would have fixed it the same morning. I count the cattle twice because the light is bad and because counting is easier than going inside. Thirty one. One short. &hellip; Tonight I pull a cow out of the water and call it a win because it is one."
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="bg-white border border-[var(--line)] rounded-2xl p-6 shadow-sm flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-display text-lg font-semibold">Without the voice lock</div>
+                <div className="px-3 py-1 rounded-full bg-[var(--amber-soft)] text-[var(--amber)] text-xs font-bold">Voice match 61 &middot; drifting</div>
+              </div>
+              <p className="text-[13.5px] text-[var(--ink-2)] leading-relaxed font-serif flex-1">
+                As the golden sun began to set over the sprawling ranch, Daniel realized that something was amiss. One of the cows had wandered away from the herd, and a feeling of deep unease settled over him. He made his way toward the shimmering pond, his heart heavy with the weight of countless responsibilities. The muddy bank proved treacherous, and he ultimately found himself struggling against the elements. In that moment, he understood that life on the ranch was not just a job, but a calling that demanded everything he had to give&hellip;
+              </p>
+              <div className="mt-4 pt-3 border-t border-[var(--line-2)] text-xs text-[var(--ink-3)]">
+                Sentence rhythm 50 &middot; function words 42 &middot; 1 stock phrase caught by the scan
+              </div>
+            </div>
+
+            <div className="bg-white border-2 border-[var(--blue)]/40 rounded-2xl p-6 shadow-sm flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <div className="font-display text-lg font-semibold">With the voice lock</div>
+                <div className="px-3 py-1 rounded-full bg-[var(--green-soft)] text-[var(--green)] text-xs font-bold">Voice match 85 &middot; strong</div>
+              </div>
+              <p className="text-[13.5px] text-[var(--ink-2)] leading-relaxed font-serif flex-1">
+                The count comes up short at dusk. Thirty one, and I run it again because the light plays tricks along the fence line. Still thirty one. I find her in the pond past the pecans, hock deep, chewing like the water belongs to her. The bank is soft. It takes my boot at the second step and I let it go, because a boot is cheaper than a fall. She does not run. They never run. They stand there and make you come get them, and you do, rope cold in your hands, breath showing&hellip;
+              </p>
+              <div className="mt-4 pt-3 border-t border-[var(--line-2)] text-xs text-[var(--ink-3)]">
+                Sentence rhythm 86 &middot; diction 99 &middot; 0 stock phrases caught by the scan
+              </div>
+            </div>
+          </div>
+
+          <p className="text-center text-xs text-[var(--ink-4)] mt-6 max-w-xl mx-auto">
+            The voice match compares sentence rhythm, punctuation habits, diction, dialogue share, and function word usage between your sample and the draft. It measures style agreement, not authorship, and it runs on every manuscript before publish.
+          </p>
+        </div>
+      </section>
+
       {/* PIPELINE */}
       <section className="py-24 bg-[var(--ink)]">
         <div className="max-w-4xl mx-auto px-6">

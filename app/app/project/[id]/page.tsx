@@ -7,7 +7,8 @@ import { createClient } from '@/lib/supabase/client';
 import { callEngine, scrubText, countWords, computeAIScore, measureSentenceVariance, type AIScore, type SentenceVariance } from '@/lib/engine';
 import { exportDocx, exportEpub, exportPdf, exportBundle, type EpubCover } from '@/lib/exports';
 import { voiceMatchScore } from '@/lib/voice-match';
-import { defaultProjectData, cid, type ProjectData, type Chapter, type Scene, type StoryBible, type CharacterEntry } from '@/lib/types';
+import { defaultProjectData, cid, canonText, type ProjectData, type Chapter, type Scene, type StoryBible, type CharacterEntry, type NamedEntry } from '@/lib/types';
+import { INTERIOR_THEMES, getTheme } from '@/lib/interior-themes';
 import { GenerationStream, type QuickDraftPlan } from '@/components/GenerationStream';
 
 const STAGES = [
@@ -838,6 +839,8 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   const [activeScenePos, setActiveScenePos] = useState({ start: 0, end: 0 });
   const [draftModal, setDraftModal] = useState(false);
   const [rewriteModal, setRewriteModal] = useState(false);
+  const [bibleModal, setBibleModal] = useState(false);
+  const [workshop, setWorkshop] = useState<null | { move: string; apply: 'replace' | 'after'; options: { label: string; text: string }[] }>(null);
   const [busy, setBusy] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
 
@@ -951,7 +954,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     setBusy(true);
     try {
       const result = await callEngine({
-        task: `TASK: Write a scene of ${lenMap[length]}. ${toneMap[tone]} ${prev ? 'Continue from existing text so the join is invisible.' : 'Open the scene however feels right.'}`,
+        task: `TASK: Write a scene of ${lenMap[length]}. ${toneMap[tone]} ${prev ? 'Continue from existing text so the join is invisible.' : 'Open the scene however feels right.'}` + (canonText(data.storyBible) ? '\n\n' + canonText(data.storyBible) : ''),
         userPrompt: prevCtx + 'Scene direction:\n' + direction,
         voiceSample: data.voiceSample,
         voiceProfile: data.voiceProfile,
@@ -975,7 +978,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     if (body.length < 40) { toast('Write a sentence or two first.', 'error'); return; }
     try {
       const result = await callEngine({
-        task: 'TASK: Continue this passage. About 350 words. Pick up naturally from the last sentence. Do not summarize.',
+        task: 'TASK: Continue this passage. About 350 words. Pick up naturally from the last sentence. Do not summarize.' + (canonText(data.storyBible) ? '\n\n' + canonText(data.storyBible) : ''),
         userPrompt: `Passage:\n---\n${body.slice(-3000)}\n---\n\nContinue.`,
         voiceSample: data.voiceSample,
         voiceProfile: data.voiceProfile,
@@ -1008,7 +1011,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     setBusy(true);
     try {
       const result = await callEngine({
-        task: `TASK: Rewrite the passage. ${instr}\nReturn ONLY the rewritten passage.`,
+        task: `TASK: Rewrite the passage. ${instr}\nReturn ONLY the rewritten passage.` + (canonText(data.storyBible) ? '\n\n' + canonText(data.storyBible) : ''),
         userPrompt: `Passage:\n---\n${sel}\n---`,
         voiceSample: data.voiceSample,
         voiceProfile: data.voiceProfile,
@@ -1024,6 +1027,72 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
     } finally {
       setBusy(false);
     }
+  }
+
+  // WORKSHOP: variant-based craft moves on the current selection. Each move
+  // returns three distinct takes; the writer picks one. Describe and Show
+  // replace the selection; Twist and Next beat insert after it.
+  async function runWorkshop(wmove: string) {
+    const e = editorRef.current;
+    if (!e) return;
+    const s0 = e.selectionStart, en0 = e.selectionEnd;
+    let sel = e.value.slice(s0, en0);
+    const specs: Record<string, { instr: string; apply: 'replace' | 'after'; needsSelection: boolean }> = {
+      describe: { instr: 'Expand the selected moment with concrete sensory detail. Three distinct takes: one leaning on sight, one on sound or touch, one on interior physical sensation. Each take replaces the selection and must flow with the surrounding prose.', apply: 'replace', needsSelection: true },
+      show: { instr: 'The selection tells instead of shows. Convert it to showing through action, gesture, dialogue, or concrete detail. Three distinct approaches, each a drop-in replacement for the selection.', apply: 'replace', needsSelection: true },
+      twist: { instr: 'Propose what complicates this moment next. Three distinct beats, each 2 to 4 sentences of prose that continue directly after the passage.', apply: 'after', needsSelection: false },
+      nextbeat: { instr: 'Continue the passage. Three distinct directions the next beat could take, each 3 to 5 sentences of prose picking up from the last sentence.', apply: 'after', needsSelection: false },
+    };
+    const spec = specs[wmove];
+    if (!spec) return;
+    if (spec.needsSelection && !sel.trim()) { toast('Highlight text first.', 'error'); return; }
+    if (!sel.trim()) sel = ctx.scene.body.slice(-1500);
+    if (!sel.trim()) { toast('Write a sentence or two first.', 'error'); return; }
+    setBusy(true);
+    try {
+      const raw = await callEngine({
+        task: `TASK: ${spec.instr}\nReturn STRICT JSON only, no markdown fences, no preamble: {"options":[{"label":"two or three word label","text":"the prose"},{"label":"...","text":"..."},{"label":"...","text":"..."}]}` + (canonText(data.storyBible) ? '\n\n' + canonText(data.storyBible) : ''),
+        userPrompt: `Passage:\n---\n${sel.slice(0, 6000)}\n---`,
+        voiceSample: data.voiceSample,
+        voiceProfile: data.voiceProfile,
+        voiceNotes: data.voiceNotes,
+        maxTokens: 2200,
+      });
+      const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+      const options = Array.isArray(parsed?.options)
+        ? parsed.options.filter((o: any) => o && typeof o.text === 'string' && o.text.trim()).slice(0, 3).map((o: any) => ({ label: String(o.label || 'Take').slice(0, 60), text: String(o.text).trim() }))
+        : [];
+      if (options.length === 0) throw new Error('No usable options came back. Try again.');
+      setWorkshop({ move: wmove, apply: spec.apply, options });
+    } catch (er: any) {
+      toast(er.message || 'Workshop failed.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function applyWorkshopOption(text: string) {
+    const e = editorRef.current;
+    if (!e || !workshop) return;
+    const s0 = e.selectionStart, en0 = e.selectionEnd;
+    let newVal: string;
+    let caret: number;
+    if (workshop.apply === 'replace' && en0 > s0) {
+      newVal = e.value.slice(0, s0) + text + e.value.slice(en0);
+      caret = s0 + text.length;
+    } else {
+      const at = en0 > s0 ? en0 : e.value.length;
+      const before = e.value.slice(0, at);
+      const sep = before.trim().length === 0 ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+      newVal = before + sep + text + e.value.slice(at);
+      caret = (before + sep + text).length;
+    }
+    updateScene(newVal);
+    setWorkshop(null);
+    setRewriteModal(false);
+    requestAnimationFrame(() => { e.setSelectionRange(caret, caret); e.focus(); });
+    toast('Applied.', 'success');
   }
 
   // QUICK DRAFT: generate full chapter outline + draft chapters from description
@@ -1700,9 +1769,13 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
               Continue from here
             </button>
-            <button onClick={() => { setFabOpen(false); setRewriteModal(true); }} className={fabItem}>
+            <button onClick={() => { setFabOpen(false); setWorkshop(null); setRewriteModal(true); }} className={fabItem}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M3 12a9 9 0 0 1 15-6.7"/><path d="M21 12a9 9 0 0 1-15 6.7"/></svg>
-              Rewrite selection
+              Rewrite / workshop selection
+            </button>
+            <button onClick={() => { setFabOpen(false); setBibleModal(true); }} className={fabItem}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+              Story bible
             </button>
           </div>
         )}
@@ -1715,7 +1788,8 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
       </div>
 
       {draftModal && <DraftModal data={data} onClose={() => setDraftModal(false)} onSubmit={draftScene} busy={busy} />}
-      {rewriteModal && <RewriteModal editorRef={editorRef} onClose={() => setRewriteModal(false)} onSubmit={rewriteSelection} busy={busy} />}
+      {rewriteModal && <RewriteModal editorRef={editorRef} onClose={() => { setRewriteModal(false); setWorkshop(null); }} onSubmit={rewriteSelection} busy={busy} workshop={workshop} onWorkshop={runWorkshop} onApplyOption={applyWorkshopOption} onClearWorkshop={() => setWorkshop(null)} />}
+      {bibleModal && <StoryBibleModal bible={data.storyBible} onClose={() => setBibleModal(false)} onSave={(b: StoryBible) => { updateData((d: ProjectData) => ({ ...d, storyBible: b })); setBibleModal(false); toast('Story bible saved. It now rides inside every draft, continue, rewrite, and workshop call.', 'success'); }} />}
       {generationStreamNode}
       </div>
     </div>
@@ -3674,6 +3748,21 @@ function PublishStage({ data, updateData, toast, plan }: any) {
           ))}
         </div>
 
+        <div className="bg-white border border-[var(--line)] rounded-xl p-6 mb-5 shadow-sm">
+          <h4 className="font-display text-[17px] font-semibold mb-1">Interior theme</h4>
+          <p className="text-xs text-[var(--ink-3)] mb-3">Styles the chapter titles, scene breaks, and drop caps across the print PDF, the EPUB, and the .docx.</p>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {Object.values(INTERIOR_THEMES).map(t => (
+              <button
+                key={t.id}
+                onClick={() => updateData((d: ProjectData) => ({ ...d, interiorTheme: t.id }))}
+                className={`px-4 py-2 rounded-lg border text-[13px] font-semibold transition ${(data.interiorTheme || 'classic') === t.id ? 'border-[var(--blue)] bg-[var(--blue-soft)] text-[var(--blue-deep)]' : 'border-[var(--line)] text-[var(--ink-2)] hover:border-[var(--blue)]'}`}
+              >{t.name}</button>
+            ))}
+          </div>
+          <p className="text-xs text-[var(--ink-4)]">{getTheme(data.interiorTheme).blurb}</p>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[
             { id: 'docx', title: 'Manuscript (.docx)', meta: 'Real Word document (OOXML). TOC field, heading styles, gutter margin.', body: 'Title page, copyright, dedication, epigraph, foreword, Word TOC, chapters with scene breaks, bio, back matter. Page numbers in the footer.', icon: 'doc' },
@@ -5161,30 +5250,180 @@ function DraftModal({ data, onClose, onSubmit, busy }: any) {
   );
 }
 
-function RewriteModal({ editorRef, onClose, onSubmit, busy }: any) {
+function RewriteModal({ editorRef, onClose, onSubmit, busy, workshop, onWorkshop, onApplyOption, onClearWorkshop }: any) {
+  const [tab, setTab] = useState<'rewrite' | 'workshop'>('rewrite');
   const [move, setMove] = useState('tighten');
   const [custom, setCustom] = useState('');
   const e = editorRef?.current;
   const sel = e ? e.value.slice(e.selectionStart, e.selectionEnd) : '';
+  const WORKSHOP_MOVES = [
+    { id: 'describe', label: 'Describe it', sub: 'Three sensory expansions of the selection' },
+    { id: 'show', label: 'Show, not tell', sub: 'Three showing conversions of the selection' },
+    { id: 'twist', label: 'Twist it', sub: 'Three complications that follow this moment' },
+    { id: 'nextbeat', label: 'Next beat', sub: 'Three directions the passage could go' },
+  ];
   return (
-    <Modal title="Rewrite selection" sub={sel ? `${countWords(sel)} words selected: "${sel.slice(0, 80)}${sel.length > 80 ? '…' : ''}"` : 'Highlight text in the editor first.'} onClose={onClose}>
-      <Field label="Move">
-        <select value={move} onChange={e => setMove(e.target.value)} className={inputCls}>
-          <option value="tighten">Tighten</option>
-          <option value="expand">Expand with a concrete detail</option>
-          <option value="vivid">More sensory and vivid</option>
-          <option value="quieter">Quieter, less explained</option>
-          <option value="dialogue">Add or extend dialogue</option>
-          <option value="voice">Match the voice sample harder</option>
-          <option value="custom">Custom direction…</option>
-        </select>
-      </Field>
-      {move === 'custom' && (
-        <Field label="Custom direction">
-          <textarea value={custom} onChange={e => setCustom(e.target.value)} className={textareaCls} placeholder="Make this feel like dusk. Shorter sentences." />
-        </Field>
+    <Modal title="Rewrite selection" sub={sel ? `${countWords(sel)} words selected: "${sel.slice(0, 80)}${sel.length > 80 ? '…' : ''}"` : 'Highlight text in the editor first. Twist and Next beat also work from the end of the scene.'} onClose={onClose}>
+      <div className="inline-flex p-1 bg-[var(--bg-3)] rounded-[9px] mb-4">
+        {([['rewrite', 'Rewrite'], ['workshop', 'Workshop']] as const).map(([t, l]) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-4 py-1.5 rounded-[6px] text-[13px] font-semibold transition ${tab === t ? 'bg-white text-[var(--blue-deep)] shadow-sm' : 'text-[var(--ink-3)] hover:text-[var(--ink)]'}`}
+          >{l}</button>
+        ))}
+      </div>
+
+      {tab === 'rewrite' ? (
+        <>
+          <Field label="Move">
+            <select value={move} onChange={e => setMove(e.target.value)} className={inputCls}>
+              <option value="tighten">Tighten</option>
+              <option value="expand">Expand with a concrete detail</option>
+              <option value="vivid">More sensory and vivid</option>
+              <option value="quieter">Quieter, less explained</option>
+              <option value="dialogue">Add or extend dialogue</option>
+              <option value="voice">Match the voice sample harder</option>
+              <option value="custom">Custom direction…</option>
+            </select>
+          </Field>
+          {move === 'custom' && (
+            <Field label="Custom direction">
+              <textarea value={custom} onChange={e => setCustom(e.target.value)} className={textareaCls} placeholder="Make this feel like dusk. Shorter sentences." />
+            </Field>
+          )}
+          <ModalFoot left={sel ? `${countWords(sel)} words selected` : 'No selection'} onCancel={onClose} onSubmit={() => onSubmit(move, custom)} submitLabel="Rewrite" busy={busy} />
+        </>
+      ) : workshop ? (
+        <>
+          <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1 mb-3">
+            {workshop.options.map((o: { label: string; text: string }, i: number) => (
+              <div key={i} className="border border-[var(--line)] rounded-xl p-3.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-bold uppercase tracking-wide text-[var(--blue-deep)]">{o.label}</span>
+                  <button onClick={() => onApplyOption(o.text)} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-[var(--blue)] text-white hover:bg-[var(--blue-deep)] transition">
+                    {workshop.apply === 'replace' ? 'Replace selection' : 'Insert after'}
+                  </button>
+                </div>
+                <p className="text-[13px] text-[var(--ink-2)] leading-relaxed whitespace-pre-wrap">{o.text}</p>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between">
+            <button onClick={onClearWorkshop} className="text-xs font-medium text-[var(--ink-3)] hover:text-[var(--ink)]">Back to moves</button>
+            <button onClick={() => onWorkshop(workshop.move)} disabled={busy} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline disabled:opacity-50">
+              {busy ? 'Working…' : 'Three different takes'}
+            </button>
+          </div>
+        </>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {WORKSHOP_MOVES.map(m => (
+            <button
+              key={m.id}
+              onClick={() => onWorkshop(m.id)}
+              disabled={busy}
+              className="text-left border border-[var(--line)] rounded-xl p-4 hover:border-[var(--blue)] hover:shadow-sm transition disabled:opacity-50"
+            >
+              <div className="font-display text-[15px] font-semibold mb-0.5">{busy ? 'Working…' : m.label}</div>
+              <div className="text-xs text-[var(--ink-3)]">{m.sub}</div>
+            </button>
+          ))}
+        </div>
       )}
-      <ModalFoot left={sel ? `${countWords(sel)} words selected` : 'No selection'} onCancel={onClose} onSubmit={() => onSubmit(move, custom)} submitLabel="Rewrite" busy={busy} />
+    </Modal>
+  );
+}
+
+/* ==================== STORY BIBLE (CODEX) ==================== */
+// The living canon for a project: protagonist, setting, locked character
+// names, locations, and lore. Editable at any time from the Write stage,
+// and injected as locked facts into every draft, continue, rewrite, and
+// workshop call, plus every Quick Draft chapter.
+function StoryBibleModal({ bible, onClose, onSave }: { bible: StoryBible | null; onClose: () => void; onSave: (b: StoryBible) => void }) {
+  const [b, setB] = useState<StoryBible>(() => bible
+    ? { protagonist: bible.protagonist || '', setting: bible.setting || '', characters: (bible.characters || []).map(c => ({ ...c })), locations: (bible.locations || []).map(l => ({ ...l })), lore: (bible.lore || []).map(l => ({ ...l })) }
+    : { protagonist: '', setting: '', characters: [], locations: [], lore: [] });
+  const setChar = (i: number, k: keyof CharacterEntry, v: string) =>
+    setB(x => ({ ...x, characters: x.characters.map((c, ci) => ci === i ? { ...c, [k]: v } : c) }));
+  const setNamed = (key: 'locations' | 'lore', i: number, k: keyof NamedEntry, v: string) =>
+    setB(x => ({ ...x, [key]: (x[key] || []).map((l, li) => li === i ? { ...l, [k]: v } : l) }));
+  const addNamed = (key: 'locations' | 'lore') =>
+    setB(x => ({ ...x, [key]: [...(x[key] || []), { name: '', description: '' }] }));
+  const rmNamed = (key: 'locations' | 'lore', i: number) =>
+    setB(x => ({ ...x, [key]: (x[key] || []).filter((_, li) => li !== i) }));
+  const sectionHead = (title: string, onAdd: () => void) => (
+    <div className="flex items-center justify-between mt-5 mb-2">
+      <h4 className="font-display text-[15px] font-semibold">{title}</h4>
+      <button onClick={onAdd} className="text-xs font-semibold text-[var(--blue-deep)] hover:underline">+ Add</button>
+    </div>
+  );
+  return (
+    <Modal title="Story bible" sub="Locked canon. Everything here is injected into every draft, continue, rewrite, and workshop call so names, places, and facts never drift." onClose={onClose}>
+      <div className="max-h-[52vh] overflow-y-auto pr-1">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <Field label="Protagonist">
+            <input className={inputCls} value={b.protagonist} onChange={e => setB(x => ({ ...x, protagonist: e.target.value }))} placeholder="Full canonical name" />
+          </Field>
+          <Field label="Setting">
+            <input className={inputCls} value={b.setting} onChange={e => setB(x => ({ ...x, setting: e.target.value }))} placeholder="Primary time and place" />
+          </Field>
+        </div>
+
+        {sectionHead(`Characters (${b.characters.length})`, () => setB(x => ({ ...x, characters: [...x.characters, { canonical_name: '', role: 'supporting', relationship_to_protagonist: '', description: '' }] })))}
+        <div className="space-y-2.5">
+          {b.characters.length === 0 && <p className="text-xs text-[var(--ink-4)]">No locked names yet.</p>}
+          {b.characters.map((c, i) => (
+            <div key={i} className="border border-[var(--line-2)] rounded-xl p-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mb-2">
+                <input className={inputCls} value={c.canonical_name} onChange={e => setChar(i, 'canonical_name', e.target.value)} placeholder="Canonical name" />
+                <input className={inputCls} value={c.role} onChange={e => setChar(i, 'role', e.target.value)} placeholder="Role" />
+                <input className={inputCls} value={c.relationship_to_protagonist} onChange={e => setChar(i, 'relationship_to_protagonist', e.target.value)} placeholder="Relationship to protagonist" />
+              </div>
+              <div className="flex items-start gap-2">
+                <input className={inputCls} value={c.description} onChange={e => setChar(i, 'description', e.target.value)} placeholder="One sentence: appearance and core trait" />
+                <button onClick={() => setB(x => ({ ...x, characters: x.characters.filter((_, ci) => ci !== i) }))} className="text-xs text-[var(--ink-4)] hover:text-[var(--red)] font-medium flex-shrink-0 mt-2.5">Remove</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {sectionHead(`Locations (${(b.locations || []).length})`, () => addNamed('locations'))}
+        <div className="space-y-2.5">
+          {(b.locations || []).length === 0 && <p className="text-xs text-[var(--ink-4)]">No locked places yet.</p>}
+          {(b.locations || []).map((l, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <input className={inputCls + ' md:max-w-[200px]'} value={l.name} onChange={e => setNamed('locations', i, 'name', e.target.value)} placeholder="Place name" />
+              <input className={inputCls} value={l.description} onChange={e => setNamed('locations', i, 'description', e.target.value)} placeholder="One sentence: what and where it is" />
+              <button onClick={() => rmNamed('locations', i)} className="text-xs text-[var(--ink-4)] hover:text-[var(--red)] font-medium flex-shrink-0 mt-2.5">Remove</button>
+            </div>
+          ))}
+        </div>
+
+        {sectionHead(`Lore and canon facts (${(b.lore || []).length})`, () => addNamed('lore'))}
+        <div className="space-y-2.5 mb-2">
+          {(b.lore || []).length === 0 && <p className="text-xs text-[var(--ink-4)]">Rules of the world, backstory, timeline facts, anything prose must never contradict.</p>}
+          {(b.lore || []).map((l, i) => (
+            <div key={i} className="flex items-start gap-2">
+              <input className={inputCls + ' md:max-w-[200px]'} value={l.name} onChange={e => setNamed('lore', i, 'name', e.target.value)} placeholder="Fact name" />
+              <input className={inputCls} value={l.description} onChange={e => setNamed('lore', i, 'description', e.target.value)} placeholder="The fact, one sentence" />
+              <button onClick={() => rmNamed('lore', i)} className="text-xs text-[var(--ink-4)] hover:text-[var(--red)] font-medium flex-shrink-0 mt-2.5">Remove</button>
+            </div>
+          ))}
+        </div>
+      </div>
+      <ModalFoot
+        left={`${b.characters.filter(c => c.canonical_name.trim()).length} characters · ${(b.locations || []).filter(l => l.name.trim()).length} locations · ${(b.lore || []).filter(l => l.name.trim()).length} facts`}
+        onCancel={onClose}
+        onSubmit={() => onSave({
+          ...b,
+          characters: b.characters.filter(c => c.canonical_name.trim()),
+          locations: (b.locations || []).filter(l => l.name.trim()),
+          lore: (b.lore || []).filter(l => l.name.trim()),
+        })}
+        submitLabel="Save bible"
+        busy={false}
+      />
     </Modal>
   );
 }

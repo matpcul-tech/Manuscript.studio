@@ -140,6 +140,8 @@ async function main() {
       bold: fs.readFileSync(path.join(fontDir, 'DejaVuSerif-Bold.ttf')).toString('base64'),
       italic: fs.readFileSync(path.join(fontDir, 'DejaVuSerif-Italic.ttf')).toString('base64'),
       bolditalic: fs.readFileSync(path.join(fontDir, 'DejaVuSerif-BoldItalic.ttf')).toString('base64'),
+      sans: fs.readFileSync(path.join(fontDir, 'DejaVuSans.ttf')).toString('base64'),
+      sansBold: fs.readFileSync(path.join(fontDir, 'DejaVuSans-Bold.ttf')).toString('base64'),
     };
     ok('DejaVu Serif faces loaded for embedding');
   } catch {
@@ -154,6 +156,35 @@ async function main() {
   const pdfStr = pdfBytes.toString('latin1');
   pdfStr.includes('DejaVuSerif') ? ok('DejaVu Serif embedded in the PDF') : bad('embedded font not found in PDF');
   console.log('  wrote ' + pdfPath);
+
+  // ---- INTERIOR THEMES ----
+  console.log('\nTHEMES');
+  for (const themeId of ['classic', 'elegant', 'modern', 'minimal']) {
+    const tp = { ...p, interiorTheme: themeId };
+    const tpdf = await buildPdfDoc(tp, fonts);
+    const tpages = (tpdf as any).getNumberOfPages();
+    tpages >= p.chapters.length ? ok(`${themeId}: PDF builds (${tpages} pages)`) : bad(`${themeId}: too few pages`);
+    const tbytes = Buffer.from((tpdf as any).output('arraybuffer'));
+    fs.writeFileSync(path.join(OUT, `sample-${themeId}.pdf`), tbytes);
+    if (themeId === 'modern') {
+      tbytes.toString('latin1').includes('DejaVuSans') ? ok('modern: DejaVu Sans embedded for titles') : bad('modern: sans face not embedded');
+    }
+  }
+  {
+    const ep = { ...p, interiorTheme: 'elegant' };
+    const ezip = buildEpubZip(ep, { data: TINY_JPEG, mediaType: 'image/jpeg' });
+    const ebuf = await ezip.generateAsync({ type: 'nodebuffer', mimeType: 'application/epub+zip' });
+    const ez = await JSZip.loadAsync(ebuf);
+    const css = await ez.file('OEBPS/style.css')?.async('string');
+    css && css.includes('first-letter') ? ok('elegant: drop cap CSS in EPUB') : bad('elegant: drop cap CSS missing');
+    const ech = await ez.file('OEBPS/chapter_001.xhtml')?.async('string');
+    ech && ech.includes('\u2042') ? ok('elegant: asterism scene break in EPUB markup') : bad('elegant: asterism missing');
+    fs.writeFileSync(path.join(OUT, 'sample-elegant.epub'), ebuf);
+    const r = spawnSync('epubcheck', [path.join(OUT, 'sample-elegant.epub')], { encoding: 'utf-8' });
+    if (!r.error) {
+      r.status === 0 ? ok('elegant: epubcheck passed with zero errors') : bad('elegant: epubcheck reported errors\n' + ((r.stdout || '') + (r.stderr || '')).trim().split('\n').slice(-3).join('\n'));
+    }
+  }
 
   console.log('');
   if (failures > 0) {
