@@ -20,7 +20,8 @@ import { ANTHROPIC_MODEL } from '@/lib/ai-config';
 type OutlineChapter = { title: string; synopsis: string };
 type Outline = { title: string; chapters: OutlineChapter[] };
 type CharacterEntry = { canonical_name: string; role: string; relationship_to_protagonist: string; age?: string; description: string };
-type StoryBible = { protagonist: string; setting: string; characters: CharacterEntry[] };
+type NamedEntry = { name: string; description: string };
+type StoryBible = { protagonist: string; setting: string; characters: CharacterEntry[]; locations?: NamedEntry[]; lore?: NamedEntry[] };
 
 const HARD_RULES = `RULES - never violate:
 - NEVER use em dashes ( — ) or en dashes ( – ). Use period, comma, or semicolon.
@@ -58,7 +59,7 @@ function autoScrub(text: string): string {
 
 function buildCanonBlock(bible: StoryBible): string {
   const lines = [
-    `CHARACTER CANON - these names are locked. Never rename, merge, or replace them:`,
+    `CANON - these names and facts are locked. Never rename, merge, contradict, or replace them:`,
     `Protagonist: ${bible.protagonist}`,
     `Setting: ${bible.setting}`,
     ``,
@@ -66,9 +67,14 @@ function buildCanonBlock(bible: StoryBible): string {
     ...bible.characters.map(c =>
       `- ${c.canonical_name} (${c.role}${c.age ? `, ${c.age}` : ''}): ${c.description}. Relationship to protagonist: ${c.relationship_to_protagonist}.`
     ),
-    ``,
-    `Do NOT introduce any character by a different name than listed above. Do NOT rename any character mid-chapter or between chapters.`,
   ];
+  if (bible.locations && bible.locations.length > 0) {
+    lines.push('', 'Locations:', ...bible.locations.map(l => `- ${l.name}: ${l.description}`));
+  }
+  if (bible.lore && bible.lore.length > 0) {
+    lines.push('', 'Canon facts and lore:', ...bible.lore.map(l => `- ${l.name}: ${l.description}`));
+  }
+  lines.push('', `Do NOT introduce any character or place by a different name than listed above. Do NOT rename anything mid-chapter or between chapters. Do NOT contradict a listed fact.`);
   return lines.join('\n');
 }
 
@@ -210,7 +216,7 @@ Rules:
 
       // Generate the story bible immediately after the outline so character
       // names are locked before any chapter is written.
-      const bibleSystemPrompt = `You are a story bible engine. Given a book description and chapter-by-chapter outline, extract every named character and produce a STRICT JSON story bible.
+      const bibleSystemPrompt = `You are a story bible engine. Given a book description and chapter-by-chapter outline, extract every named character and location and produce a STRICT JSON story bible.
 
 Return ONLY a JSON object with this exact shape:
 {
@@ -224,11 +230,15 @@ Return ONLY a JSON object with this exact shape:
       "age": "e.g. 34 or omit if unknown",
       "description": "one sentence: physical appearance and core personality trait"
     }
+  ],
+  "locations": [
+    { "name": "Place Name", "description": "one sentence: what and where it is" }
   ]
 }
 
 Rules:
 - Include every named character implied by the outline, even if only mentioned once
+- Include every named place implied by the outline; an empty array is fine if none are named
 - canonical_name is the ONLY name that may be used in the manuscript. Never vary it.
 - No em dashes anywhere
 - Return ONLY the JSON object. No markdown fences. No preamble. No explanation.`;
@@ -355,6 +365,12 @@ Rules:
           if (cleaned.chapters.length > 0) finalOutline = cleaned;
         }
         if (a.storyBible && Array.isArray(a.storyBible.characters)) {
+          const cleanNamed = (arr: any): NamedEntry[] => Array.isArray(arr)
+            ? arr
+                .filter((l: any) => l && typeof l.name === 'string' && l.name.trim())
+                .slice(0, 60)
+                .map((l: any) => ({ name: String(l.name).slice(0, 120), description: String(l.description || '').slice(0, 400) }))
+            : [];
           finalBible = {
             protagonist: String(a.storyBible.protagonist || '').slice(0, 200),
             setting: String(a.storyBible.setting || '').slice(0, 500),
@@ -368,6 +384,8 @@ Rules:
                 age: c.age ? String(c.age).slice(0, 40) : undefined,
                 description: String(c.description || '').slice(0, 400),
               })),
+            locations: cleanNamed(a.storyBible.locations),
+            lore: cleanNamed(a.storyBible.lore),
           };
         }
       }

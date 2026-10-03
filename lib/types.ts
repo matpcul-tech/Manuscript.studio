@@ -6,11 +6,54 @@ export type CharacterEntry = {
   description: string;
 };
 
+export type NamedEntry = {
+  name: string;
+  description: string;
+};
+
 export type StoryBible = {
   protagonist: string;
   setting: string;
   characters: CharacterEntry[];
+  // Codex extensions: optional so projects saved before they existed load
+  // cleanly. Locations are extracted at outline time and editable; lore is
+  // writer-maintained. Both are injected as locked canon into every
+  // drafting, continuation, and rewrite call.
+  locations?: NamedEntry[];
+  lore?: NamedEntry[];
 };
+
+// Flattens the story bible into the locked-canon block that rides inside
+// every generation call (quick draft chapters, scene drafts, continues,
+// rewrites, workshop moves). Shared by the client and the Inngest worker so
+// the canon reads identically everywhere.
+export function canonText(b: StoryBible | null | undefined): string {
+  if (!b) return '';
+  const lines: string[] = [];
+  if (b.protagonist) lines.push(`Protagonist: ${b.protagonist}`);
+  if (b.setting) lines.push(`Setting: ${b.setting}`);
+  if (b.characters && b.characters.length > 0) {
+    lines.push('Characters:');
+    b.characters.forEach(c => {
+      if (!c.canonical_name) return;
+      lines.push(`- ${c.canonical_name} (${c.role}${c.age ? `, ${c.age}` : ''}): ${c.description}. Relationship to protagonist: ${c.relationship_to_protagonist}.`);
+    });
+  }
+  if (b.locations && b.locations.length > 0) {
+    lines.push('Locations:');
+    b.locations.forEach(l => { if (l.name) lines.push(`- ${l.name}: ${l.description}`); });
+  }
+  if (b.lore && b.lore.length > 0) {
+    lines.push('Canon facts and lore:');
+    b.lore.forEach(l => { if (l.name) lines.push(`- ${l.name}: ${l.description}`); });
+  }
+  if (lines.length === 0) return '';
+  return [
+    'CANON - these facts and names are locked. Never rename, contradict, or replace them:',
+    ...lines,
+    'Do NOT introduce any listed character or place by a different name. Do NOT contradict a listed fact.',
+  ].join('\n').slice(0, 4000);
+}
 
 export type Scene = {
   id: string;
@@ -47,6 +90,8 @@ export type ProjectData = {
   // manuscript
   chapters: Chapter[];
   activeSceneId: string;
+  // publish
+  interiorTheme: string;
   // cover
   coverPreset: string;
   titleFont: string;
@@ -151,6 +196,7 @@ export function defaultProjectData(): ProjectData {
     quickPrompt: '',
     quickWordTarget: 60000,
     storyBible: null,
+    interiorTheme: 'classic',
     kdpDescription: '',
     kdpKeywords: [],
     kdpCategories: [],

@@ -13,10 +13,12 @@ Built by an indie author who self-publishes fiction.
 ## What it does
 
 - **Voice Training**: Paste or upload past writing. Your sample and style notes steer every generation, and a local stylometric voice-match score (sentence rhythm, punctuation habits, diction, dialogue share, function words) measures the finished manuscript against the sample at publish time. The voice lock is verified, not asserted.
-- **Quick Draft**: Describe the book in a paragraph. Get a chapter outline and a character canon (story bible), then an editable review step: fix chapter titles, synopses, and character names before a single line of prose is written. Approve to start the draft, or do nothing and it starts on its own after 30 minutes. Names in the canon are locked across the whole draft, and if the canon fails to build, the job warns you visibly instead of drafting without one.
-- **Write**: Scene-by-scene or chapter-by-chapter drafting with voice lock, continue-from-cursor, and six rewrite moves on selection.
+- **Quick Draft**: Describe the book in a paragraph. Get a chapter outline and a character canon (story bible), then an editable review step: fix chapter titles, synopses, and character names before a single line of prose is written. Locations are extracted into the canon alongside characters. Approve to start the draft, or do nothing and it starts on its own after 30 minutes. Names in the canon are locked across the whole draft, and if the canon fails to build, the job warns you visibly instead of drafting without one.
+- **Write**: Scene-by-scene or chapter-by-chapter drafting with voice lock, continue-from-cursor, six rewrite moves, and a Workshop: Describe, Show-not-tell, Twist, and Next beat each return three distinct takes to pick from.
+- **Story Bible**: a living codex per project: protagonist, setting, locked character names, locations, and lore, editable any time from the Write stage and injected as locked canon into every draft, continue, rewrite, workshop call, and Quick Draft chapter.
 - **Edit (Sovereign Prose Validator)**: Multi-layer humanization and quality pass: AI phrase scan (tracked-phrase density, a tally rather than a detector), somatic interiority depth, voice consistency, pacing, character continuity, and related checks. Findings link to one-click rewrites. Scoped to scene, chapter, or whole manuscript.
 - **Cover**: Live cover builder with palette presets and title fonts. Exports at 1600×2560 KDP resolution and embeds into the EPUB.
+- **Interior themes**: Classic, Elegant, Modern, and Minimal style the chapter titles, scene breaks, and drop caps across the print PDF, the EPUB, and the .docx. Elegant sets letterspaced capitals with a rule and a three-line drop cap; Modern sets sans titles with embedded DejaVu Sans.
 - **Publish / Launch**: KDP walkthrough with generated description variants, backend keywords, categories, pricing suggestions, front matter, back matter, and metadata pack. Exports:
   - **.docx**: real OOXML via the `docx` library: Word TOC field, heading styles, title/copyright/dedication/epigraph/foreword front matter, scene breaks, gutter margin, footer page numbers.
   - **EPUB 3**: embedded cover from your design, landmarks nav, scene breaks in markup, full metadata. Validated by epubcheck with zero errors.
@@ -177,12 +179,17 @@ npm run cap:android  # open Android project
 - Stylometric voice-match score in the Publish pre-flight
 - Story bible retry with a visible warning when the character canon cannot be built
 - Editable plan review between outline and draft: correct chapters and character canon before prose runs, with a 30 minute auto-start fallback
+- Story Bible codex (characters, locations, lore) injected as locked canon into every generation call
+- Workshop: variant-based craft moves (Describe, Show, Twist, Next beat), three takes each
+- Four interior themes across PDF/EPUB/.docx, drop caps and ornaments verified by the export harness
+- Public before/after proof on the landing page with scores from the shipped voice match (85 strong vs 61 drifting)
 - Landing page, pricing, and free → paid path
 - Capacitor mobile scaffolding
 - Generation usage tracking and plan limits
 
 **Next**
-- Before/after demo chapter proving the voice lock on a public sample
+- Series-level codex shared across projects
+- More interior themes and ornament sets
 - Stronger per-chapter / per-scene snapshots and one-tap undo
 - Full Stripe gate on exports and higher tiers (if not already live)
 - AI cover backgrounds

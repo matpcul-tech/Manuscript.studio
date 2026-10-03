@@ -1,4 +1,5 @@
 import type { ProjectData, Chapter } from './types';
+import { getTheme, type InteriorTheme } from './interior-themes';
 import JSZip from 'jszip';
 import {
   AlignmentType,
@@ -78,6 +79,8 @@ const TWIPS = 1440; // twips per inch
 const HALF_POINTS = 2; // half-points per point
 
 export function buildDocxDocument(p: ProjectData): Document {
+  const theme = getTheme(p.interiorTheme);
+  const BREAK = theme.sceneBreak;
   const { w, h } = trimSize(p);
   const year = String(p.frontMatter?.copyrightYear || p.pubYear || new Date().getFullYear());
   const publisher = p.publisher || p.frontMatter?.publisher || '';
@@ -187,7 +190,7 @@ export function buildDocxDocument(p: ProjectData): Document {
       pageBreakBefore: true,
       alignment: AlignmentType.CENTER,
       spacing: { before: Math.round(1 * TWIPS), after: Math.round(0.5 * TWIPS) },
-      children: [new TextRun({ text: ch.title, font: serif, size: 24 * HALF_POINTS, bold: true, color: '000000' })],
+      children: [new TextRun({ text: theme.titleTransform === 'uppercase' ? ch.title.toUpperCase() : ch.title, font: serif, size: Math.round(theme.titleSizePt + 2) * HALF_POINTS, bold: true, color: '000000' })],
     }));
     ch.scenes.forEach((sc, si) => {
       const paras = splitParas(sc.body);
@@ -196,7 +199,7 @@ export function buildDocxDocument(p: ProjectData): Document {
         bodyChildren.push(new Paragraph({
           alignment: AlignmentType.CENTER,
           spacing: { before: 240, after: 240 },
-          children: [new TextRun({ text: SCENE_BREAK, font: serif, size: 11 * HALF_POINTS })],
+          children: [new TextRun({ text: BREAK, font: serif, size: 11 * HALF_POINTS })],
         }));
       }
       paras.forEach((pa, pi) => {
@@ -273,6 +276,8 @@ export async function exportDocx(p: ProjectData) {
 export type EpubCover = { data: Uint8Array | ArrayBuffer; mediaType: 'image/jpeg' | 'image/png' };
 
 export function buildEpubZip(p: ProjectData, cover?: EpubCover): JSZip {
+  const theme = getTheme(p.interiorTheme);
+  const BREAK = theme.sceneBreak;
   const zip = new JSZip();
   zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
   zip.folder('META-INF')!.file('container.xml',
@@ -354,7 +359,7 @@ ${contribHtml}`));
     const fname = `chapter_${String(idx + 1).padStart(3, '0')}.xhtml`;
     const bodyHtml = ch.scenes.map(sc =>
       splitParas(sc.body).map(pa => `<p>${escapeHtml(pa)}</p>`).join('\n')
-    ).filter(Boolean).join(`\n<p class="scene-break">${SCENE_BREAK.replace(/ /g, '&#8194;')}</p>\n`);
+    ).filter(Boolean).join(`\n<p class="scene-break">${escapeHtml(BREAK).replace(/ /g, '&#8194;')}</p>\n`);
     oebps.file(fname, xdoc(ch.title, 'epub:type="bodymatter chapter"', `<h1>${escapeHtml(ch.title)}</h1>${bodyHtml}`));
     items.push({ id: `ch${idx + 1}`, href: fname, mediaType: 'application/xhtml+xml', inSpine: true, navTitle: ch.title });
   });
@@ -374,8 +379,19 @@ ${contribHtml}`));
     items.push({ id: 'backmatter', href: 'backmatter.xhtml', mediaType: 'application/xhtml+xml', inSpine: true, navTitle: 'From the Author' });
   }
 
+  const h1Css = [
+    `font-family: ${theme.titleFace === 'sans' ? 'sans-serif' : 'serif'};`,
+    'font-weight: 600; text-align: center; margin: 2em 0 1em;',
+    `font-size: ${theme.titleFace === 'sans' ? '1.5em' : theme.titleTransform === 'uppercase' ? '1.25em' : '1.6em'};`,
+    theme.titleTransform === 'uppercase' ? 'text-transform: uppercase;' : '',
+    theme.titleLetterSpace ? 'letter-spacing: 0.18em;' : '',
+    theme.titleRule ? 'border-bottom: 1px solid #999; padding-bottom: 0.5em; width: 60%; margin-left: auto; margin-right: auto;' : '',
+  ].filter(Boolean).join(' ');
+  const dropCapCss = theme.dropCap
+    ? `\nh1 + p::first-letter { float: left; font-size: 3.1em; line-height: 0.82; padding: 0.02em 0.08em 0 0; font-weight: 600; }`
+    : '';
   oebps.file('style.css', `body { font-family: serif; line-height: 1.6; margin: 1em; }
-h1 { font-family: serif; font-weight: 600; text-align: center; margin: 2em 0 1em; font-size: 1.6em; }
+h1 { ${h1Css} }
 p { text-indent: 1.2em; margin: 0 0 0.3em; text-align: justify; }
 h1 + p, .scene-break + p { text-indent: 0; }
 .title-page { text-align: center; }
@@ -386,7 +402,7 @@ h1 + p, .scene-break + p { text-indent: 0; }
 .epigraph { text-align: center; font-style: italic; margin-top: 4em; text-indent: 0; }
 .epigraph-attr { text-align: center; text-indent: 0; margin-top: 0.6em; }
 .copyright p, .bm { text-indent: 0; margin-bottom: 0.6em; }
-.scene-break { text-align: center; text-indent: 0; margin: 1em 0; letter-spacing: 0.4em; color: #555; }`);
+.scene-break { text-align: center; text-indent: 0; margin: 1em 0; letter-spacing: ${BREAK.length > 1 ? '0.4em' : '0'}; color: #555; font-size: ${BREAK.length === 1 ? '1.2em' : '1em'}; }${dropCapCss}`);
 
   // Navigation document
   const navItems = items
@@ -454,13 +470,18 @@ export async function exportEpub(p: ProjectData, cover?: EpubCover) {
 // PDF (print interior)
 // ============================================================================
 
-export type PdfFonts = { normal: string; bold: string; italic: string; bolditalic: string }; // base64 TTFs
+export type PdfFonts = {
+  normal: string; bold: string; italic: string; bolditalic: string; // DejaVu Serif, base64 TTFs
+  sans?: string; sansBold?: string; // DejaVu Sans, for sans-titled themes
+};
 
-const PDF_FONT_FILES: { style: keyof PdfFonts; file: string }[] = [
+const PDF_FONT_FILES: { style: keyof PdfFonts; file: string; optional?: boolean }[] = [
   { style: 'normal', file: 'DejaVuSerif.ttf' },
   { style: 'bold', file: 'DejaVuSerif-Bold.ttf' },
   { style: 'italic', file: 'DejaVuSerif-Italic.ttf' },
   { style: 'bolditalic', file: 'DejaVuSerif-BoldItalic.ttf' },
+  { style: 'sans', file: 'DejaVuSans.ttf', optional: true },
+  { style: 'sansBold', file: 'DejaVuSans-Bold.ttf', optional: true },
 ];
 
 async function fetchPdfFonts(): Promise<PdfFonts | null> {
@@ -468,7 +489,7 @@ async function fetchPdfFonts(): Promise<PdfFonts | null> {
     const out: Partial<PdfFonts> = {};
     for (const f of PDF_FONT_FILES) {
       const r = await fetch(`/fonts/${f.file}`);
-      if (!r.ok) return null;
+      if (!r.ok) { if (f.optional) continue; return null; }
       const buf = await r.arrayBuffer();
       let bin = '';
       const bytes = new Uint8Array(buf);
@@ -493,6 +514,9 @@ export async function buildPdfDoc(p: ProjectData, fonts?: PdfFonts | null) {
   // jsPDF's built-in Times is not embedded, so we ship DejaVu Serif and
   // fall back to Times only if the font files are unreachable.
   let FONT = 'times';
+  let TITLE_FONT = 'times';
+  const theme = getTheme(p.interiorTheme);
+  const BREAK = theme.sceneBreak;
   if (fonts) {
     pdf.addFileToVFS('DejaVuSerif.ttf', fonts.normal);
     pdf.addFont('DejaVuSerif.ttf', 'BookSerif', 'normal');
@@ -503,12 +527,20 @@ export async function buildPdfDoc(p: ProjectData, fonts?: PdfFonts | null) {
     pdf.addFileToVFS('DejaVuSerif-BoldItalic.ttf', fonts.bolditalic);
     pdf.addFont('DejaVuSerif-BoldItalic.ttf', 'BookSerif', 'bolditalic');
     FONT = 'BookSerif';
+    TITLE_FONT = 'BookSerif';
+    if (theme.titleFace === 'sans' && fonts.sans && fonts.sansBold) {
+      pdf.addFileToVFS('DejaVuSans.ttf', fonts.sans);
+      pdf.addFont('DejaVuSans.ttf', 'BookSans', 'normal');
+      pdf.addFileToVFS('DejaVuSans-Bold.ttf', fonts.sansBold);
+      pdf.addFont('DejaVuSans-Bold.ttf', 'BookSans', 'bold');
+      TITLE_FONT = 'BookSans';
+    }
   }
 
   const marginTop = 0.75, marginBottom = 0.75;
   const marginOuter = 0.625, marginInner = 0.875;
   const bodySize = 11;
-  const titleSize = 22;
+  const titleSize = theme.titleSizePt;
   const lineStep = (size: number) => size * 0.014 + 0.06;
 
   let page = 1; // page 1 = title page = recto
@@ -571,6 +603,43 @@ export async function buildPdfDoc(p: ProjectData, fonts?: PdfFonts | null) {
       const x = opts.center ? w / 2 : (m.left + (opts.indent && i === 0 ? 0.25 : 0));
       pdf.text(ln, x, y, { align: opts.center ? 'center' : 'left' });
       y += lineStep(opts.size || bodySize);
+    });
+    cursorY = y + 0.05;
+  }
+
+  // Drop cap: the chapter's opening paragraph with its first letter set large
+  // across roughly three lines. Only used at chapter tops, where vertical
+  // space is guaranteed, so the cap region never breaks across pages.
+  function writeDropCapParagraph(text: string) {
+    const clean = text.trim();
+    if (clean.length < 2) { writeParagraph(clean, { indent: false }); return; }
+    const m = setMargins();
+    const textWidth = w - m.left - m.right;
+    const cap = clean[0];
+    const rest = clean.slice(1).replace(/^\s+/, '');
+    const capSize = bodySize * 3.0;
+    pdf.setFont(FONT, 'bold');
+    pdf.setFontSize(capSize);
+    const capW = pdf.getTextWidth(cap) + 0.06;
+    pdf.setFont(FONT, 'normal');
+    pdf.setFontSize(bodySize);
+    const narrow = pdf.splitTextToSize(rest, textWidth - capW);
+    const beside = narrow.slice(0, 3);
+    const remainder = narrow.slice(3).join(' ');
+    const after = remainder ? pdf.splitTextToSize(remainder, textWidth) : [];
+    const step = lineStep(bodySize);
+    let y = cursorY;
+    pdf.setFont(FONT, 'bold');
+    pdf.setFontSize(capSize);
+    pdf.text(cap, m.left, y + step * 2);
+    pdf.setFont(FONT, 'normal');
+    pdf.setFontSize(bodySize);
+    beside.forEach((ln: string, i: number) => pdf.text(ln, m.left + capW, y + step * i));
+    y += step * Math.max(beside.length, 3);
+    after.forEach((ln: string) => {
+      if (y > h - marginBottom - 0.2) { newPage(); y = marginTop; pdf.setFont(FONT, 'normal'); pdf.setFontSize(bodySize); }
+      pdf.text(ln, m.left, y);
+      y += step;
     });
     cursorY = y + 0.05;
   }
@@ -640,10 +709,24 @@ export async function buildPdfDoc(p: ProjectData, fonts?: PdfFonts | null) {
   p.chapters.forEach(ch => {
     newRectoPage({ chapterOpen: true });
     cursorY = marginTop + 1.2;
-    pdf.setFont(FONT, 'bold');
+    const titleText = theme.titleTransform === 'uppercase' ? ch.title.toUpperCase() : ch.title;
+    const maxTitleW = w - marginInner - marginOuter;
+    pdf.setFont(TITLE_FONT, 'bold');
     pdf.setFontSize(titleSize);
-    pdf.text(ch.title, w / 2, cursorY, { align: 'center', maxWidth: w - marginInner - marginOuter });
-    cursorY += 0.6;
+    if (theme.titleLetterSpace) (pdf as any).setCharSpace(0.02);
+    // Measure the wrapped title with the same font state it renders in, so
+    // the rule and the body start clear of a two-line title instead of
+    // striking through it.
+    const tLines: string[] = pdf.splitTextToSize(titleText, maxTitleW);
+    pdf.text(titleText, w / 2, cursorY, { align: 'center', maxWidth: maxTitleW });
+    if (theme.titleLetterSpace) (pdf as any).setCharSpace(0);
+    const titleBottom = cursorY + (tLines.length - 1) * (titleSize * 0.0138 * 1.15);
+    if (theme.titleRule) {
+      pdf.setDrawColor(120);
+      pdf.setLineWidth(0.008);
+      pdf.line(w / 2 - 0.7, titleBottom + 0.16, w / 2 + 0.7, titleBottom + 0.16);
+    }
+    cursorY = titleBottom + (theme.titleRule ? 0.55 : 0.5);
     pdf.setFont(FONT, 'normal');
     pdf.setFontSize(bodySize);
     let wroteScene = false;
@@ -653,12 +736,17 @@ export async function buildPdfDoc(p: ProjectData, fonts?: PdfFonts | null) {
       if (wroteScene) {
         if (cursorY > h - marginBottom - 0.6) { newPage(); cursorY = marginTop; }
         pdf.setFont(FONT, 'normal');
+        pdf.setFontSize(BREAK.length === 1 ? 13 : bodySize);
+        pdf.text(BREAK, w / 2, cursorY + 0.1, { align: 'center' });
         pdf.setFontSize(bodySize);
-        pdf.text(SCENE_BREAK, w / 2, cursorY + 0.1, { align: 'center' });
         cursorY += 0.3;
       }
       paras.forEach((pa, pi) => {
-        writeParagraph(pa.replace(/\n/g, ' '), { indent: wroteScene || pi > 0 });
+        if (!wroteScene && pi === 0 && theme.dropCap) {
+          writeDropCapParagraph(pa.replace(/\n/g, ' '));
+        } else {
+          writeParagraph(pa.replace(/\n/g, ' '), { indent: wroteScene || pi > 0 });
+        }
       });
       wroteScene = true;
     });
