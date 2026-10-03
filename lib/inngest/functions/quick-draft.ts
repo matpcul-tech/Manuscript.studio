@@ -155,7 +155,7 @@ export const generateQuickDraft = inngest.createFunction(
 
     // Step 2: outline + story bible. Two sequential Anthropic calls in one
     // Inngest step so both are cached together on retry.
-    const { outline, storyBible } = await step.run('outline', async (): Promise<{ outline: Outline; storyBible: StoryBible }> => {
+    const { outline, storyBible, bibleStatus } = await step.run('outline', async (): Promise<{ outline: Outline; storyBible: StoryBible; bibleStatus: 'ok' | 'retried' | 'failed' }> => {
       const outlineSystemPrompt = `You are a book outlining engine. Given a description, target length, and chapter count, produce a chapter-by-chapter outline as STRICT JSON.
 
 Return ONLY a JSON object with this exact shape:
@@ -250,12 +250,50 @@ Rules:
       const bibleCleaned = bibleText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
 
       let bible: StoryBible;
+      let bibleStatus: 'ok' | 'retried' | 'failed' = 'ok';
       try {
         bible = JSON.parse(bibleCleaned);
       } catch {
-        // Non-fatal: continue without a bible rather than aborting the whole job.
-        logger.warn('Could not parse story bible; proceeding without character canon.', { jobId });
-        bible = { protagonist: '', setting: '', characters: [] };
+        // First parse failed. Retry once with a corrective turn instead of
+        // silently running the whole draft with an empty character canon.
+        logger.warn('Story bible parse failed; retrying once.', { jobId });
+        const retryResponse = await anthropic.messages.create({
+          model: ANTHROPIC_MODEL,
+          max_tokens: 1500,
+          system: bibleSystemPrompt,
+          messages: [
+            { role: 'user', content: bibleUserPrompt },
+            { role: 'assistant', content: bibleText },
+            { role: 'user', content: 'That output failed JSON.parse. Return ONLY the corrected JSON object, with no markdown fences, no preamble, and no explanation.' },
+          ],
+        });
+        await supabase.from('engine_usage').insert({
+          user_id: userId,
+          task: 'quick-draft:bible-retry',
+          input_tokens: retryResponse.usage.input_tokens,
+          output_tokens: retryResponse.usage.output_tokens,
+        });
+        const retryText = retryResponse.content
+          .filter((b: any) => b.type === 'text')
+          .map((b: any) => b.text)
+          .join('\n')
+          .trim();
+        const retryCleaned = retryText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+        try {
+          bible = JSON.parse(retryCleaned);
+          bibleStatus = 'retried';
+        } catch {
+          // Still unparseable. Continue so the writer gets their draft, but
+          // say so loudly: broadcast a visible warning and mark the result,
+          // instead of pretending a canon exists.
+          logger.warn('Story bible parse failed after retry; proceeding without character canon.', { jobId });
+          bible = { protagonist: '', setting: '', characters: [] };
+          bibleStatus = 'failed';
+          await broadcastEvent(jobId, 'status', {
+            phase: 'warning',
+            message: 'Character canon could not be built from this outline. Names may drift between chapters; review and fill in the Story Bible before publishing.',
+          });
+        }
       }
 
       await supabase.from('engine_usage').insert({
@@ -266,7 +304,7 @@ Rules:
       });
 
       await broadcastEvent(jobId, 'outline', parsed);
-      return { outline: parsed, storyBible: bible };
+      return { outline: parsed, storyBible: bible, bibleStatus };
     });
 
     // Step 3..N+2: each chapter is its own step so retries only re-run the
@@ -354,7 +392,7 @@ Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown
 
     // Step N+3: persist final result and signal done.
     await step.run('save-result', async () => {
-      const result = JSON.stringify({ outline, storyBible, chapterTexts });
+      const result = JSON.stringify({ outline, storyBible, bibleStatus, chapterTexts });
       await supabase
         .from('generation_jobs')
         .update({
@@ -367,6 +405,7 @@ Output ONLY the prose. No headings, no preamble, no closing remarks, no markdown
       await broadcastEvent(jobId, 'done', {
         outline,
         storyBible,
+        bibleStatus,
         chapterTexts,
       });
     });
