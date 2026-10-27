@@ -24,7 +24,9 @@ const config: CapacitorConfig = {
   },
   ios: {
     contentInset: 'always',
-    scheme: 'Manuscript Studio',
+    // Local Capacitor origin only. The WebView still loads server.url.
+    // A URL scheme cannot contain spaces.
+    scheme: 'manuscriptstudio',
     backgroundColor: '#ffffff',
   },
   android: {
