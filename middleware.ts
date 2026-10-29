@@ -1,8 +1,24 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
+import { isStoreRequest, STORE_COOKIE } from '@/lib/storeBuildShared';
 
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
+  const path = request.nextUrl.pathname;
+  const store = isStoreRequest(request.headers.get('user-agent'), request.cookies.get(STORE_COOKIE)?.value);
+
+  // Store build mode: no pricing page, landing page, or billing inside the native app.
+  if (store && (path === '/' || path.startsWith('/billing'))) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/app';
+    url.search = '';
+    const res = NextResponse.redirect(url);
+    res.cookies.set(STORE_COOKIE, '1', { path: '/', sameSite: 'lax', secure: true });
+    return res;
+  }
+  if (store && path.startsWith('/api/stripe/') && !path.startsWith('/api/stripe/webhook')) {
+    return NextResponse.json({ error: 'Purchases are not available in the app.' }, { status: 403 });
+  }
 
   // Skip auth callback route
   if (request.nextUrl.pathname.startsWith('/auth/callback')) {
@@ -37,6 +53,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (store && request.cookies.get(STORE_COOKIE)?.value !== '1') {
+    supabaseResponse.cookies.set(STORE_COOKIE, '1', { path: '/', sameSite: 'lax', secure: true });
+  }
   return supabaseResponse;
 }
 

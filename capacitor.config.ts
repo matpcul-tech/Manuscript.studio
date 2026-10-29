@@ -10,6 +10,8 @@ const config: CapacitorConfig = {
     url: 'https://manuscript-studio-os.vercel.app',
     cleartext: false,
   },
+  // Marks the native shell so the site hides purchase UI (store build mode).
+  appendUserAgent: 'ManuscriptStudioApp',
   plugins: {
     SplashScreen: {
       launchShowDuration: 1500,

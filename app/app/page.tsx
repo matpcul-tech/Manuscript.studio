@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { useStoreBuild } from '@/lib/storeBuild';
 
 type Project = {
   id: string;
@@ -21,6 +22,7 @@ function DashboardContent() {
   const [userEmail, setUserEmail] = useState('');
   const [plan, setPlan] = useState<'free' | 'pro' | 'studio'>('free');
   const upgraded = searchParams.get('upgraded') === 'true';
+  const storeBuild = useStoreBuild();
 
   useEffect(() => {
     loadProjects();
@@ -92,7 +94,11 @@ function DashboardContent() {
         </Link>
         <div className="ml-auto flex items-center gap-3">
           <span className="text-sm text-[var(--ink-3)] hidden sm:block">{userEmail}</span>
-          <Link href="/billing" className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)] px-3 py-2 rounded-lg hover:bg-[var(--bg-3)]">Billing</Link>
+          {storeBuild ? (
+            <Link href="/account" className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)] px-3 py-2 rounded-lg hover:bg-[var(--bg-3)]">Account</Link>
+          ) : (
+            <Link href="/billing" className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)] px-3 py-2 rounded-lg hover:bg-[var(--bg-3)]">Billing</Link>
+          )}
           <button onClick={signOut} className="text-sm text-[var(--ink-2)] hover:text-[var(--ink)] px-3 py-2 rounded-lg hover:bg-[var(--bg-3)]">Sign out</button>
         </div>
       </nav>
@@ -109,7 +115,11 @@ function DashboardContent() {
             <h1 className="font-display text-3xl font-bold mb-1">Your projects</h1>
             <p className="text-[var(--ink-3)]">Pick up where you left off, or start something new.</p>
           </div>
-          {plan === 'free' && projects.length >= 1 ? (
+          {plan === 'free' && projects.length >= 1 && storeBuild ? (
+            <span className="px-4 py-2.5 rounded-lg bg-[var(--bg-3)] text-[var(--ink-3)] text-sm font-semibold">
+              Free plan project limit reached
+            </span>
+          ) : plan === 'free' && projects.length >= 1 ? (
             <Link
               href="/billing"
               className="px-5 py-2.5 rounded-lg bg-[var(--amber)] hover:opacity-90 text-white font-semibold shadow-sm transition flex items-center gap-2 text-sm"
