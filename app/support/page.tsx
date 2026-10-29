@@ -9,7 +9,7 @@ export default function Support() {
       <h1 className="font-display text-3xl font-bold mb-6">Support</h1>
       <p className="mb-4">
         Questions, bugs, or account help: email{' '}
-        <a href="mailto:support@manuscript-studio-os.com" className="text-[var(--blue)] underline">support@manuscript-studio-os.com</a>.
+        <a href="mailto:matpcul@gmail.com" className="text-[var(--blue)] underline">matpcul@gmail.com</a>.
       </p>
       <ul className="list-disc pl-6 space-y-2">
         <li><Link href="/privacy" className="text-[var(--blue)] underline">Privacy policy</Link></li>

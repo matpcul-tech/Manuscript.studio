@@ -22,7 +22,7 @@ export default function DeleteAccountInfo({ searchParams }: { searchParams: { do
         <li>Type DELETE and tap Delete my account.</li>
       </ol>
       <p className="mb-4">
-        If you cannot sign in, email <a href="mailto:support@manuscript-studio-os.com" className="text-[var(--blue)] underline">support@manuscript-studio-os.com</a> from
+        If you cannot sign in, email <a href="mailto:matpcul@gmail.com" className="text-[var(--blue)] underline">matpcul@gmail.com</a> from
         the address on your account and we will delete it within 30 days.
       </p>
       <h2 className="font-semibold text-xl mt-8 mb-3">What is deleted</h2>
