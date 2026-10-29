@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import NextLink from 'next/link';
 import { useStoreBuild } from '@/lib/storeBuild';
+import { ReportAIOutput } from '@/components/ReportAIOutput';
 
 // In store build mode, links to /billing render as plain text so the native app
 // never points at a purchase flow. Other links behave normally.
@@ -315,6 +316,7 @@ export default function ProjectPage() {
             className="text-sm font-medium text-[var(--ink-2)] bg-transparent border border-transparent hover:bg-[var(--bg-3)] focus:bg-white focus:border-[var(--blue)] px-2.5 py-1.5 rounded-md outline-none min-w-0 w-full transition"
           />
           <div className="flex items-center gap-2 text-xs text-[var(--ink-3)] flex-shrink-0 ml-auto">
+            <ReportAIOutput projectId={id} projectTitle={data.title} stage={data.currentStage} />
             <span className="hidden sm:inline"><b className="text-[var(--ink-2)]">{totalWords().toLocaleString()}</b> words</span>
             <span className="flex items-center gap-1.5">
               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${saveState === 'saving' ? 'bg-[var(--amber)]' : 'bg-[var(--green)]'}`} />
