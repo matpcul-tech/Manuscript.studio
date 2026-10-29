@@ -721,6 +721,9 @@ export default function LandingPage() {
                       Sovereign Shield Technologies
                     </a>
                   </li>
+                  <li><Link href="/privacy" className="hover:text-white transition">Privacy</Link></li>
+                  <li><Link href="/support" className="hover:text-white transition">Support</Link></li>
+                  <li><Link href="/delete-account" className="hover:text-white transition">Delete account</Link></li>
                 </ul>
               </div>
             </div>

@@ -53,6 +53,20 @@ Add universal links and app links only after all of these exist:
 - Hosted association files on a domain you control
 - A decision about which host is canonical (`vercel.app` vs `manuscript-studio-os.com`)
 
+## Store build mode (reader app)
+
+Done. The native shell appends `ManuscriptStudioApp` to the WebView user agent (`appendUserAgent` in `capacitor.config.ts`). The site treats that request as a store build (`lib/storeBuildShared.ts`, `lib/storeBuild.ts`, `middleware.ts`):
+
+- `/` (landing page with pricing) and `/billing` redirect to `/app`.
+- `/api/stripe/checkout` and `/api/stripe/portal` return 403. The webhook is untouched.
+- Billing nav becomes Account. Every Upgrade link and the Upgrade gate buttons render as plain text with no price and no link.
+- Sign-in is unchanged, so a plan bought on the web applies in the app.
+- `STORE_BUILD=1` (server) or `NEXT_PUBLIC_STORE_BUILD=1` (client) forces store mode for local testing.
+
+Privacy policy: `/privacy`. Support: `/support`. Account deletion: `/account` (in app, signed in) and the public `/delete-account` page for the Play deletion URL. Deletion cancels any Stripe subscription, then deletes the auth user; data rows cascade.
+
+The reader app approach means Play Billing and StoreKit are not required as long as the app never offers or links to a purchase. Steps 2 and 3 below are optional if you choose to sell in-app later.
+
 ## Billing
 
 Pro ($19/month) and Studio ($39/month) are Stripe subscriptions on the web. Checkout is `app/billing/page.tsx` and `app/page.tsx` posting to `/api/stripe/checkout`, which redirects to a Stripe hosted page. The billing portal posts to `/api/stripe/portal`. Plan limits read the Supabase `subscriptions` row.

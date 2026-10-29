@@ -2,7 +2,19 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
-import Link from 'next/link';
+import NextLink from 'next/link';
+import { useStoreBuild } from '@/lib/storeBuild';
+
+// In store build mode, links to /billing render as plain text so the native app
+// never points at a purchase flow. Other links behave normally.
+function Link(props: any) {
+  const storeBuild = useStoreBuild();
+  if (storeBuild && typeof props.href === 'string' && props.href.startsWith('/billing')) {
+    return <span className="text-xs text-[var(--ink-3)]" title={props.title}>{props.storeLabel ?? 'Not on your plan'}</span>;
+  }
+  const { storeLabel, ...rest } = props;
+  return <NextLink {...rest} />;
+}
 import { createClient } from '@/lib/supabase/client';
 import { callEngine, scrubText, countWords, computeAIScore, measureSentenceVariance, type AIScore, type SentenceVariance } from '@/lib/engine';
 import { exportDocx, exportEpub, exportPdf, exportBundle, type EpubCover } from '@/lib/exports';
@@ -525,7 +537,7 @@ Return ONLY the JSON object. No markdown fences. No preamble.`,
                   placeholder="A Spirit Reborn"
                 />
                 {plan === 'free' ? (
-                  <Link href="/billing" className="px-3 py-2 rounded-lg border border-[var(--line)] text-[var(--ink-4)] text-xs font-semibold flex items-center gap-1.5 flex-shrink-0" title="Pro plan required">
+                  <Link href="/billing" className="px-3 py-2 rounded-lg border border-[var(--line)] text-[var(--ink-4)] text-xs font-semibold flex items-center gap-1.5 flex-shrink-0" title="Pro plan required" storeLabel="Pro">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                     Pro
                   </Link>
@@ -5077,7 +5089,7 @@ function UpgradeGate({ feature, required }: { feature: string; required: 'pro' |
         <p className="text-[var(--ink-3)] text-sm mb-5 leading-relaxed">
           This feature is included in the {required === 'pro' ? 'Pro' : 'Studio'} plan.
         </p>
-        <Link href="/billing" className="inline-block px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-sm font-semibold transition">
+        <Link href="/billing" storeLabel={`Not included in your current plan`} className="inline-block px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-sm font-semibold transition">
           Upgrade to {required === 'pro' ? 'Pro ($19/mo)' : 'Studio ($39/mo)'}
         </Link>
       </div>
