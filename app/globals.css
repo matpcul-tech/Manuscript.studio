@@ -73,3 +73,11 @@ button { cursor: pointer; }
 
 .font-display { font-family: 'Playfair Display', Georgia, serif; }
 .font-serif { font-family: 'Lora', Georgia, serif; }
+
+/* Fade edges on horizontally scrolling tab rows so phones show there is more. */
+@media (max-width: 1023px) {
+  .scroll-fade {
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%);
+  }
+}

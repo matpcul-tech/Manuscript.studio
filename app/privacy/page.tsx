@@ -56,6 +56,7 @@ export default function PrivacyPolicy() {
 
       <h2 className="font-semibold text-xl mt-8 mb-3">Contact</h2>
       <p>Email <a href="mailto:matpcul@gmail.com" className="text-[var(--blue)] underline">matpcul@gmail.com</a>.</p>
+      <p className="mt-8 text-sm">See also the <Link href="/terms" className="text-[var(--blue)] underline">terms of service</Link>.</p>
     </main>
   );
 }
