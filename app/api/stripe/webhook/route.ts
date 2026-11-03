@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { planForPriceId } from '@/lib/plans';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
@@ -48,9 +49,8 @@ export async function POST(req: NextRequest) {
       if (!data) break;
 
       const priceId = sub.items.data[0]?.price.id;
-      const plan =
-        priceId === process.env.STRIPE_PRO_PRICE_ID ? 'pro' :
-        priceId === process.env.STRIPE_STUDIO_PRICE_ID ? 'studio' : 'free';
+      // Monthly and yearly prices map to the same tier.
+      const plan = planForPriceId(priceId) ?? 'free';
 
       await supabase
         .from('subscriptions')
