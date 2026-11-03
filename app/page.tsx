@@ -71,7 +71,7 @@ const FEATURES = [
   {
     icon: <IconShield />,
     title: 'Sovereign Prose Validator',
-    body: 'Four-layer check: AI detection score, somatic interiority depth, voice consistency, and pacing. Each finding links to a one-click rewrite.',
+    body: 'Four-layer quality check: stock phrasing, somatic interiority depth, voice consistency, and pacing. Each finding links to a one-click rewrite.',
   },
   {
     icon: <IconList />,
@@ -583,7 +583,7 @@ export default function LandingPage() {
               { n: '01', title: 'Setup', body: 'Connect your voice, describe your book, set genre and target length.' },
               { n: '02', title: 'Voice', body: 'Upload a few pages of past writing. The studio builds a profile of how you actually write.' },
               { n: '03', title: 'Write', body: 'Quick Draft generates a full chapter outline and opens the manuscript in your voice.' },
-              { n: '04', title: 'Edit', body: 'Sovereign Prose Validator scores AI detection, voice consistency, pacing, and somatic depth. One-click rewrites for every finding.' },
+              { n: '04', title: 'Edit', body: 'Sovereign Prose Validator checks stock phrasing, voice consistency, pacing, and somatic depth. One-click rewrites for every finding.' },
               { n: '05', title: 'Cover', body: 'Live cover builder. Choose typography, adjust size, pick a color preset. Export 1600x2560 PNG for KDP.' },
               { n: '06', title: 'Publish', body: 'KDP Launch Walkthrough with generated description, backend keywords, and category suggestions.' },
               { n: '07', title: 'Launch', body: 'Export KDP-ready .docx and .epub. Copy and paste your listing. Go live.' },

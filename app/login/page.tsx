@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
 import { useInAppBrowser } from '@/lib/useInAppBrowser';
+import { useStoreBuild } from '@/lib/storeBuild';
 
 type Mode = 'signin' | 'signup' | 'reset';
 
@@ -22,6 +23,9 @@ function GoogleIcon() {
 export default function LoginPage() {
   const router = useRouter();
   const isInApp = useInAppBrowser();
+  // Inside the native app there is no native Google flow, and Google blocks
+  // OAuth in embedded WebViews, so only email sign-in is offered there.
+  const storeBuild = useStoreBuild();
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -128,7 +132,7 @@ export default function LoginPage() {
   return (
     <main className="min-h-screen flex flex-col bg-[var(--bg-2)]">
       <nav className="h-16 bg-white border-b border-[var(--line)] flex items-center px-6">
-        <Link href="/" className="flex items-center gap-2.5">
+        <Link href={storeBuild ? '/login' : '/'} className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-[var(--blue)] to-[var(--blue-deep)] grid place-items-center text-white font-display font-bold text-[19px]">M</div>
           <span className="font-bold text-[16px] tracking-tight">Manuscript Studio</span>
         </Link>
@@ -139,7 +143,7 @@ export default function LoginPage() {
           <div className="bg-white rounded-2xl border border-[var(--line)] shadow-[var(--shadow-md)] p-9">
 
             {/* In-app browser warning -- Google OAuth can be blocked inside FB/IG/TikTok */}
-            {isInApp && (
+            {isInApp && !storeBuild && (
               <div className="mb-6 rounded-xl bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800 leading-snug">
                 <span className="font-semibold">Open in your browser</span> for the smoothest signup. Google sign-in may be blocked inside social apps. Email and password always works.
               </div>
@@ -167,7 +171,7 @@ export default function LoginPage() {
             </h1>
 
             {/* Google sign-in -- only shown in signin and signup modes */}
-            {mode !== 'reset' && (
+            {mode !== 'reset' && !storeBuild && (
               <>
                 <button
                   onClick={signInWithGoogle}
@@ -270,12 +274,16 @@ export default function LoginPage() {
             </form>
 
             <div className="mt-6 pt-6 border-t border-[var(--line-2)] text-xs text-[var(--ink-4)] text-center">
-              By signing in, you agree that your manuscripts remain yours. We never train on your work.
+              By signing in, you agree to the{' '}
+              <Link href="/terms" className="underline hover:text-[var(--ink)]">Terms</Link> and{' '}
+              <Link href="/privacy" className="underline hover:text-[var(--ink)]">Privacy policy</Link>. Your manuscripts remain yours. We never train on your work.
             </div>
           </div>
-          <div className="text-center mt-6">
-            <Link href="/" className="text-sm text-[var(--ink-3)] hover:text-[var(--ink)]">Back to home</Link>
-          </div>
+          {!storeBuild && (
+            <div className="text-center mt-6">
+              <Link href="/" className="text-sm text-[var(--ink-3)] hover:text-[var(--ink)]">Back to home</Link>
+            </div>
+          )}
         </div>
       </div>
     </main>

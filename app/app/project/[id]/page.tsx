@@ -11,10 +11,18 @@ import { ReportAIOutput } from '@/components/ReportAIOutput';
 function Link(props: any) {
   const storeBuild = useStoreBuild();
   if (storeBuild && typeof props.href === 'string' && props.href.startsWith('/billing')) {
-    return <span className="text-xs text-[var(--ink-3)]" title={props.title}>{props.storeLabel ?? 'Not on your plan'}</span>;
+    if (props.storeLabel === undefined) return null;
+    return <span className="text-xs text-[var(--ink-3)]" title={PAID_PLANS_TEXT}>{props.storeLabel}</span>;
   }
   const { storeLabel, ...rest } = props;
   return <NextLink {...rest} />;
+}
+
+// Neutral plan wording for the native app. No plan names, prices, or links.
+const PAID_PLANS_TEXT = 'Available on paid plans';
+function PlanText({ children, store = PAID_PLANS_TEXT }: { children: React.ReactNode; store?: string }) {
+  const storeBuild = useStoreBuild();
+  return <>{storeBuild ? store : children}</>;
 }
 import { createClient } from '@/lib/supabase/client';
 import { callEngine, scrubText, countWords, computeAIScore, measureSentenceVariance, type AIScore, type SentenceVariance } from '@/lib/engine';
@@ -325,12 +333,13 @@ export default function ProjectPage() {
           </div>
         </div>
         {/* Stage tabs -- scrollable on mobile */}
-        <div className="overflow-x-auto border-t border-[var(--line)] bg-[var(--bg-3)] scrollbar-hide">
+        <div className="overflow-x-auto border-t border-[var(--line)] bg-[var(--bg-3)] scrollbar-hide scroll-fade">
           <div className="flex gap-0.5 p-1 min-w-max">
             {STAGES.map((s, i) => (
               <button
                 key={s.id}
-                onClick={() => setStage(s.id)}
+                data-stage-tab={s.id}
+                onClick={(e) => { setStage(s.id); (e.currentTarget as HTMLElement).scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' }); }}
                 className={`px-3.5 py-1.5 rounded-[7px] text-[13px] font-medium transition flex items-center gap-1.5 whitespace-nowrap ${
                   data.currentStage === s.id
                     ? 'bg-white text-[var(--blue-deep)] shadow-sm'
@@ -539,7 +548,7 @@ Return ONLY the JSON object. No markdown fences. No preamble.`,
                   placeholder="A Spirit Reborn"
                 />
                 {plan === 'free' ? (
-                  <Link href="/billing" className="px-3 py-2 rounded-lg border border-[var(--line)] text-[var(--ink-4)] text-xs font-semibold flex items-center gap-1.5 flex-shrink-0" title="Pro plan required" storeLabel="Pro">
+                  <Link href="/billing" className="px-3 py-2 rounded-lg border border-[var(--line)] text-[var(--ink-4)] text-xs font-semibold flex items-center gap-1.5 flex-shrink-0" title="Pro plan required" storeLabel="Paid plans">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                     Pro
                   </Link>
@@ -726,7 +735,7 @@ function VoiceStage({ data, updateData, toast, plan }: any) {
     <div className="h-full overflow-y-auto p-10">
       <div className="max-w-5xl mx-auto">
         <h2 className="font-display text-3xl font-semibold mb-1.5">Train your voice</h2>
-        <p className="text-[var(--ink-3)] mb-7 max-w-2xl">Upload past writing or paste a sample. The longer and more honest, the better the match. Files stay in your browser.</p>
+        <p className="text-[var(--ink-3)] mb-7 max-w-2xl">Upload past writing or paste a sample. The longer and more honest, the better the match. Your files are read on this device.</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,320px] gap-5">
           <div className="bg-white border border-[var(--line)] rounded-xl p-6 shadow-sm">
@@ -736,7 +745,7 @@ function VoiceStage({ data, updateData, toast, plan }: any) {
                 <div className="w-11 h-11 rounded-full bg-[var(--bg-3)] text-[var(--ink-4)] grid place-items-center mx-auto mb-2">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                 </div>
-                <div className="text-sm font-semibold text-[var(--ink-3)] mb-1">File upload requires Studio</div>
+                <div className="text-sm font-semibold text-[var(--ink-3)] mb-1"><PlanText store="File upload is available on paid plans">File upload requires Studio</PlanText></div>
                 <Link href="/billing" className="text-xs text-[var(--blue)] font-semibold hover:underline">Upgrade to Studio</Link>
               </div>
             ) : (
@@ -773,9 +782,9 @@ function VoiceStage({ data, updateData, toast, plan }: any) {
                   </div>
                 </div>
                 <div className="text-sm font-semibold text-[var(--ink-2)] mb-0.5">
-                  {parsing ? 'Reading files...' : 'Drop files here or click to upload'}
+                  {parsing ? 'Reading files...' : 'Tap to choose files, or drop them here'}
                 </div>
-                <div className="text-xs text-[var(--ink-3)]">.txt, .md, .docx, .pdf · multiple files OK · stays in your browser</div>
+                <div className="text-xs text-[var(--ink-3)]">.txt, .md, .docx, .pdf · multiple files OK · read on this device</div>
               </div>
             )}
 
@@ -825,11 +834,11 @@ function VoiceStage({ data, updateData, toast, plan }: any) {
           <div className="space-y-4">
             <div className="bg-white border border-[var(--line)] rounded-xl p-4 shadow-sm">
               <div className="flex items-center gap-2 mb-1.5">
-                <span className={`inline-block w-3 h-3 rounded-full ${data.voiceSample ? 'bg-[var(--green)] shadow-[0_0_0_4px_rgba(16,185,129,0.18)]' : 'bg-[var(--ink-4)]'}`} />
+                <span className={`inline-block w-3 h-3 rounded-full ${countWords(data.voiceSample) > 0 ? 'bg-[var(--green)] shadow-[0_0_0_4px_rgba(16,185,129,0.18)]' : 'bg-[var(--ink-4)]'}`} />
                 <strong className="text-sm">Voice profile</strong>
               </div>
               <div className="text-xs text-[var(--ink-3)] leading-relaxed">
-                {data.voiceSample
+                {countWords(data.voiceSample) > 0
                   ? `${countWords(data.voiceSample).toLocaleString()} words trained${data.voiceProfile ? '. Profile active.' : '. Awaiting analysis.'}`
                   : 'No sample studied yet.'}
               </div>
@@ -850,6 +859,8 @@ function VoiceStage({ data, updateData, toast, plan }: any) {
 /* ==================== WRITE STAGE ==================== */
 function WriteStage({ data, updateData, toast, projectId }: any) {
   const [fabOpen, setFabOpen] = useState(false);
+  // Phones: the outline is a slide-in drawer so the editor gets the full width.
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [activeScenePos, setActiveScenePos] = useState({ start: 0, end: 0 });
   const [draftModal, setDraftModal] = useState(false);
   const [rewriteModal, setRewriteModal] = useState(false);
@@ -1666,11 +1677,18 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   return (
     <div className="h-full flex flex-col overflow-hidden">
       {pendingBanner}
-      <div className="flex-1 grid grid-cols-[260px,1fr] overflow-hidden">
-      {/* TREE */}
-      <aside className="bg-white border-r border-[var(--line)] flex flex-col overflow-hidden">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-[260px,1fr] overflow-hidden relative">
+      {outlineOpen && (
+        <div className="lg:hidden fixed inset-0 bg-black/30 z-[60]" onClick={() => setOutlineOpen(false)} aria-hidden="true" />
+      )}
+      {/* TREE: drawer on phones, column on desktop */}
+      <aside
+        className={`bg-white border-r border-[var(--line)] flex flex-col overflow-hidden fixed inset-y-0 left-0 w-[82vw] max-w-[320px] z-[70] shadow-xl transition-transform duration-200 lg:static lg:w-auto lg:max-w-none lg:z-auto lg:shadow-none lg:translate-x-0 ${outlineOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        aria-label="Manuscript outline"
+      >
         <div className="px-4 pt-4.5 pb-2 flex items-center justify-between">
           <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-[var(--ink-4)]">Manuscript</span>
+          <button onClick={() => setOutlineOpen(false)} className="lg:hidden ml-auto mr-1 px-2 h-7 rounded-md text-xs font-semibold text-[var(--ink-3)] hover:bg-[var(--bg-3)]">Done</button>
           <button onClick={addChapter} className="w-7 h-7 rounded-md text-[var(--ink-3)] hover:bg-[var(--bg-3)] hover:text-[var(--blue)] grid place-items-center">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-3.5 h-3.5"><path d="M12 5v14M5 12h14"/></svg>
           </button>
@@ -1702,7 +1720,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
                   {ch.scenes.map((sc: Scene) => (
                     <div
                       key={sc.id}
-                      onClick={() => switchScene(sc.id)}
+                      onClick={() => { switchScene(sc.id); setOutlineOpen(false); }}
                       className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-[12.5px] cursor-pointer group ${
                         sc.id === data.activeSceneId ? 'bg-[var(--blue-soft)]' : 'hover:bg-[var(--bg-3)]'
                       }`}
@@ -1733,7 +1751,15 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
 
       {/* EDITOR */}
       <main className="flex flex-col overflow-hidden bg-[var(--bg-2)]">
-        <div className="h-11 bg-white border-b border-[var(--line)] flex items-center px-6 gap-2">
+        <div className="h-11 bg-white border-b border-[var(--line)] flex items-center px-3 sm:px-6 gap-2">
+          <button
+            onClick={() => setOutlineOpen(true)}
+            className="lg:hidden text-xs font-semibold text-[var(--ink-2)] border border-[var(--line)] px-2.5 py-1 rounded-md flex items-center gap-1.5"
+            aria-label="Open outline"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>
+            Outline
+          </button>
           {!hasAnyContent && (
             <button
               onClick={() => updateData((d: ProjectData) => ({ ...d, writeMode: 'quick' }))}
@@ -1750,8 +1776,8 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
             <b className="text-[var(--blue-deep)]">{countWords(ctx.scene.body)}</b> words in scene
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-9 pb-48 flex justify-center">
-          <div className="bg-white w-full max-w-[760px] rounded-xl shadow-sm border border-[var(--line)] p-14">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-9 pb-48 flex justify-center">
+          <div className="bg-white w-full max-w-[760px] rounded-xl shadow-sm border border-[var(--line)] p-5 sm:p-14">
             <input
               value={ctx.scene.title}
               onChange={e => updateScene(undefined, e.target.value)}
@@ -1772,7 +1798,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
       </main>
 
       {/* FAB */}
-      <div className="fixed right-8 bottom-8 flex flex-col items-end gap-3 z-50">
+      <div className="fixed right-5 bottom-5 sm:right-8 sm:bottom-8 flex flex-col items-end gap-3 z-50">
         {fabOpen && (
           <div className="flex flex-col gap-2 items-end">
             <button onClick={() => { setFabOpen(false); setDraftModal(true); }} className={fabItem}>
@@ -2907,11 +2933,11 @@ Rules:
     <div className="h-full overflow-y-auto p-9">
       <div className="max-w-[1320px] mx-auto">
         <h2 className="font-display text-3xl font-semibold mb-1.5">Edit and polish</h2>
-        <p className="text-[var(--ink-3)] mb-6">AI phrase scan, voice consistency, pacing, structure, and somatic interiority. Each check finds specific issues and applies rewrites with one click.</p>
+        <p className="text-[var(--ink-3)] mb-6">AI phrase scan, voice consistency, pacing, structure, and somatic interiority. Each check finds specific issues and applies rewrites with one tap.</p>
 
         <div className="grid grid-cols-1 lg:grid-cols-[1fr,380px] gap-5">
           <div className="bg-white rounded-xl border border-[var(--line)] p-10 shadow-sm max-h-[calc(100vh-180px)] overflow-y-auto font-serif text-[16px] leading-[1.78] text-[var(--ink)] whitespace-pre-wrap">
-            {target.text || <em className="text-[var(--ink-3)] italic">Pick a scope on the right and the text loads here.</em>}
+            {target.text || <em className="text-[var(--ink-3)] italic">Pick a scope below and the text loads here.</em>}
           </div>
 
           <div className="space-y-4">
@@ -2935,7 +2961,7 @@ Rules:
                 <h4 className="font-display text-[17px] font-semibold">AI Phrase Scan</h4>
                 <span className="text-[10px] font-bold tracking-wider uppercase text-[var(--ink-4)]">Live</span>
               </div>
-              <p className="text-xs text-[var(--ink-3)] mb-4">How likely this reads as AI-generated. Tuned against the patterns KDP review flags.</p>
+              <p className="text-xs text-[var(--ink-3)] mb-4">Flags stock phrasing and repetitive patterns so your prose reads fresh and natural.</p>
 
               {aiScore.totalWords === 0 ? (
                 <div className="text-center py-6 text-xs text-[var(--ink-4)] italic">Write something to see your score.</div>
@@ -2989,7 +3015,7 @@ Rules:
               <p className="text-xs text-[var(--ink-3)] mb-3">Tighten sentences. Preserves voice.</p>
               {plan !== 'studio' ? (
                 <div className="flex items-center justify-between px-3 py-2.5 bg-[var(--bg-3)] rounded-lg">
-                  <span className="text-xs text-[var(--ink-3)]">Studio plan only</span>
+                  <span className="text-xs text-[var(--ink-3)]"><PlanText>Studio plan only</PlanText></span>
                   <Link href="/billing" className="text-xs text-[var(--blue)] font-semibold">Upgrade</Link>
                 </div>
               ) : (
@@ -3001,10 +3027,10 @@ Rules:
 
             <div className={editCard}>
               <h4 className="font-display text-[17px] font-semibold mb-1">Voice consistency</h4>
-              <p className="text-xs text-[var(--ink-3)] mb-3">Find passages that drift from your trained voice. Apply rewrites with one click.</p>
+              <p className="text-xs text-[var(--ink-3)] mb-3">Find passages that drift from your trained voice. Apply rewrites with one tap.</p>
               {plan === 'free' ? (
                 <div className="flex items-center justify-between px-3 py-2.5 bg-[var(--bg-3)] rounded-lg">
-                  <span className="text-xs text-[var(--ink-3)]">Pro plan required</span>
+                  <span className="text-xs text-[var(--ink-3)]"><PlanText>Pro plan required</PlanText></span>
                   <Link href="/billing" className="text-xs text-[var(--blue)] font-semibold">Upgrade</Link>
                 </div>
               ) : (
@@ -3687,7 +3713,7 @@ function PublishStage({ data, updateData, toast, plan }: any) {
   const items = [
     { label: 'Title set', ok: !!data.title.trim() },
     { label: 'Author set', ok: !!data.author.trim() },
-    { label: 'Voice profile trained', ok: !!data.voiceSample, warn: !data.voiceSample },
+    { label: countWords(data.voiceSample || '') > 0 ? 'Voice profile trained' : 'Voice profile not trained yet', ok: countWords(data.voiceSample || '') > 0, warn: countWords(data.voiceSample || '') === 0 },
     { label: `Manuscript: ${totalW.toLocaleString()} words`, ok: totalW >= 5000, warn: totalW < 5000 && totalW > 0, bad: totalW === 0 },
     { label: `${data.chapters.length} chapter${data.chapters.length === 1 ? '' : 's'}`, ok: data.chapters.length > 0 },
     {
@@ -3795,7 +3821,7 @@ function PublishStage({ data, updateData, toast, plan }: any) {
               <p className="text-[13px] text-[var(--ink-3)] leading-relaxed mb-4 flex-1">{card.body}</p>
               {plan === 'free' && card.id !== 'docx' ? (
                 <div className="flex items-center justify-between px-3 py-2.5 bg-[var(--bg-3)] rounded-lg mt-auto">
-                  <span className="text-xs text-[var(--ink-3)]">Pro plan required</span>
+                  <span className="text-xs text-[var(--ink-3)]"><PlanText>Pro plan required</PlanText></span>
                   <Link href="/billing" className="text-xs text-[var(--blue)] font-semibold">Upgrade</Link>
                 </div>
               ) : (
@@ -4088,7 +4114,7 @@ function LaunchStage({ data, updateData, toast, plan }: any) {
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
-      <div className="border-b border-[var(--line)] bg-white px-6 flex-shrink-0 overflow-x-auto">
+      <div className="border-b border-[var(--line)] bg-white px-6 flex-shrink-0 overflow-x-auto scrollbar-hide scroll-fade">
         <div className="max-w-[1280px] mx-auto flex gap-1">
           {LAUNCH_SUB_TABS.map(t => {
             const locked = isPackLocked(t.id) || isExportLocked(t.id);
@@ -5072,13 +5098,14 @@ function PackSpinner() {
 function PackEmptyCard() {
   return (
     <div className="bg-white border border-dashed border-[var(--line)] rounded-xl p-10 text-center">
-      <p className="text-sm text-[var(--ink-3)]">Fill in the form and click Generate.</p>
+      <p className="text-sm text-[var(--ink-3)]">Fill in the form and tap Generate.</p>
     </div>
   );
 }
 
 /* ==================== SHARED UI ==================== */
 function UpgradeGate({ feature, required }: { feature: string; required: 'pro' | 'studio' }) {
+  const storeBuild = useStoreBuild();
   return (
     <div className="h-full flex items-center justify-center p-10">
       <div className="max-w-sm text-center">
@@ -5089,9 +5116,11 @@ function UpgradeGate({ feature, required }: { feature: string; required: 'pro' |
         </div>
         <h3 className="font-display text-xl font-semibold mb-2">{feature}</h3>
         <p className="text-[var(--ink-3)] text-sm mb-5 leading-relaxed">
-          This feature is included in the {required === 'pro' ? 'Pro' : 'Studio'} plan.
+          {storeBuild
+            ? `${PAID_PLANS_TEXT}.`
+            : `This feature is included in the ${required === 'pro' ? 'Pro' : 'Studio'} plan.`}
         </p>
-        <Link href="/billing" storeLabel={`Not included in your current plan`} className="inline-block px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-sm font-semibold transition">
+        <Link href="/billing" className="inline-block px-5 py-2.5 rounded-lg bg-[var(--blue)] hover:bg-[var(--blue-deep)] text-white text-sm font-semibold transition">
           Upgrade to {required === 'pro' ? 'Pro ($19/mo)' : 'Studio ($39/mo)'}
         </Link>
       </div>
@@ -5243,9 +5272,9 @@ function DraftModal({ data, onClose, onSubmit, busy }: any) {
       <div className="grid grid-cols-2 gap-3">
         <Field label="Length">
           <select value={length} onChange={e => setLength(e.target.value)} className={inputCls}>
-            <option value="short">Short — 250 words</option>
-            <option value="medium">Medium — 500 words</option>
-            <option value="long">Long — 900 words</option>
+            <option value="short">Short (250 words)</option>
+            <option value="medium">Medium (500 words)</option>
+            <option value="long">Long (900 words)</option>
           </select>
         </Field>
         <Field label="Tone">
