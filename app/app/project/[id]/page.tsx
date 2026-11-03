@@ -1125,6 +1125,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   const [quickStatus, setQuickStatus] = useState('');
   const [quickProgress, setQuickProgress] = useState({ done: 0, total: 0 });
   const [quickDraftMode, setQuickDraftMode] = useState<'opening' | 'all'>('all');
+  const [quickCapMsg, setQuickCapMsg] = useState('');
   const [quickJobId, setQuickJobId] = useState<string | null>(null);
   const [quickElapsed, setQuickElapsed] = useState(0);
   const [quickJobStartedAt, setQuickJobStartedAt] = useState<number | null>(null);
@@ -1162,6 +1163,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
   }, [quickBusy, quickJobStartedAt]);
 
   async function generateQuickDraft() {
+    setQuickCapMsg('');
     if (!data.quickPrompt.trim() || data.quickPrompt.trim().length < 20) {
       toast('Tell us a bit more about what you want to write.', 'error');
       return;
@@ -1198,6 +1200,7 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
           window.location.href = `/login?returnTo=${encodeURIComponent(window.location.pathname)}`;
           return;
         }
+        if (json.code === 'whole_book_limit') setQuickCapMsg(json.error);
         throw new Error(json.error || json.message || `HTTP ${res.status}: ${raw.slice(0, 120) || 'empty response'}`);
       }
       setQuickJobId(json.jobId);
@@ -1626,6 +1629,12 @@ function WriteStage({ data, updateData, toast, projectId }: any) {
                 </svg>
                 {quickDraftMode === 'all' ? 'Generate full manuscript' : 'Generate opening'}
               </button>
+
+              {quickCapMsg && (
+                <div role="status" data-testid="whole-book-cap" className="mt-4 px-3 py-2.5 bg-[var(--bg-3)] border border-[var(--line)] rounded-lg text-sm text-[var(--ink-2)]">
+                  {quickCapMsg}
+                </div>
+              )}
 
               {!data.voiceSample && (
                 <div className="mt-4 px-3 py-2.5 bg-[var(--amber-soft)] rounded-lg text-xs text-[#92400e] flex items-start gap-2">

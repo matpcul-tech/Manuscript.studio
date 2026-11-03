@@ -4,6 +4,9 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { PLAN_FEATURES, priceLabel, type Plan, type Interval } from '@/lib/plans';
+import { IntervalToggle } from '@/components/IntervalToggle';
+import { useYearlyAvailable } from '@/lib/useYearlyAvailable';
 
 type Sub = {
   plan: string;
@@ -12,45 +15,9 @@ type Sub = {
 };
 
 const PLANS = [
-  {
-    tier: 'free',
-    name: 'Free',
-    price: '$0',
-    sub: 'forever',
-    items: ['1 project', '1 voice profile', '30 engine calls per day', 'Export .docx and .txt', 'No credit card required'],
-  },
-  {
-    tier: 'pro',
-    name: 'Pro',
-    price: '$19',
-    sub: 'per month',
-    badge: 'Most popular',
-    items: [
-      '150 AI generations per month',
-      'Unlimited manuscripts',
-      'Full Publishing Pack',
-      'Title and Subtitle Generator',
-      'All exports (.docx, .txt)',
-      'Voice consistency check',
-      'Sovereign Prose Validator',
-    ],
-  },
-  {
-    tier: 'studio',
-    name: 'Studio',
-    price: '$39',
-    sub: 'per month',
-    items: [
-      '500 AI generations per month',
-      'Unlimited manuscripts',
-      'Everything in Pro',
-      'Voice training upload',
-      'Export All zip download',
-      'Whole manuscript line edit',
-      'Priority support',
-      'AI cover backgrounds (coming soon)',
-    ],
-  },
+  { tier: 'free' as Plan, name: 'Free' },
+  { tier: 'pro' as Plan, name: 'Pro', badge: 'Most popular' },
+  { tier: 'studio' as Plan, name: 'Studio' },
 ];
 
 const PLAN_LABELS: Record<string, string> = {
@@ -65,6 +32,9 @@ export default function BillingPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [error, setError] = useState('');
+  const yearlyOk = useYearlyAvailable();
+  const [interval, setInterval] = useState<Interval>('month');
+  const activeInterval: Interval = yearlyOk ? interval : 'month';
 
   useEffect(() => {
     // Hard fallback: if auth or the subscription fetch hangs (flaky mobile
@@ -107,7 +77,7 @@ export default function BillingPage() {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier }),
+        body: JSON.stringify({ tier, interval: activeInterval }),
       });
       const data = await res.json();
       if (data.url) window.location.href = data.url;
@@ -192,11 +162,16 @@ export default function BillingPage() {
             )}
 
             {/* Plan comparison -- always shown */}
-            <div className="text-sm font-semibold text-[var(--ink-3)] mb-4">
-              {isPaid ? 'All plans' : 'Upgrade your plan'}
+            <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
+              <div className="text-sm font-semibold text-[var(--ink-3)]">
+                {isPaid ? 'All plans' : 'Upgrade your plan'}
+              </div>
+              {yearlyOk && <IntervalToggle value={interval} onChange={setInterval} />}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
               {PLANS.map(p => {
+                const pl = priceLabel(p.tier, activeInterval);
+                const items = PLAN_FEATURES[p.tier];
                 const isCurrent = sub?.plan === p.tier || (!sub?.plan && p.tier === 'free');
                 const isUpgrade = p.tier !== 'free' && !isCurrent;
                 return (
@@ -209,11 +184,12 @@ export default function BillingPage() {
                     )}
                     <div className="font-display text-xl font-bold mb-1">{p.name}</div>
                     <div className="flex items-baseline gap-1 mb-4">
-                      <span className="font-display text-3xl font-bold">{p.price}</span>
-                      <span className="text-sm text-[var(--ink-3)]">/ {p.sub}</span>
+                      <span className="font-display text-3xl font-bold" data-price={p.tier}>{pl.price}</span>
+                      <span className="text-sm text-[var(--ink-3)]">/ {pl.sub}</span>
                     </div>
+                    {pl.note && <div className="text-xs text-[var(--green)] font-semibold -mt-3 mb-4">{pl.note}</div>}
                     <ul className="space-y-2 mb-6">
-                      {p.items.map(it => (
+                      {items.map(it => (
                         <li key={it} className="text-sm text-[var(--ink-2)] flex items-start gap-2">
                           <span className="text-[var(--green)] font-bold mt-0.5 flex-shrink-0">&#10003;</span>
                           <span>{it}</span>

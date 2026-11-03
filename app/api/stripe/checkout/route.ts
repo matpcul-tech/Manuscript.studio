@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { stripePriceId, type Interval } from '@/lib/plans';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,14 +10,15 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { tier } = await req.json();
-
-    const priceId = tier === 'pro'
-      ? process.env.STRIPE_PRO_PRICE_ID
-      : process.env.STRIPE_STUDIO_PRICE_ID;
+    const { tier, interval: rawInterval } = await req.json();
+    if (tier !== 'pro' && tier !== 'studio') {
+      return NextResponse.json({ error: 'Unknown plan' }, { status: 400 });
+    }
+    const interval: Interval = rawInterval === 'year' ? 'year' : 'month';
+    const priceId = stripePriceId(tier, interval);
 
     if (!priceId) {
-      throw new Error(`Missing Stripe price ID for tier: ${tier}`);
+      return NextResponse.json({ error: interval === 'year' ? 'Yearly billing is not available yet.' : `Missing Stripe price ID for tier: ${tier}` }, { status: 400 });
     }
 
     if (!process.env.STRIPE_SECRET_KEY) {
@@ -55,7 +57,8 @@ export async function POST(req: NextRequest) {
       mode: 'subscription',
       success_url: `${req.nextUrl.origin}/app?upgraded=true`,
       cancel_url: `${req.nextUrl.origin}/billing`,
-      metadata: { userId: user.id, tier },
+      metadata: { userId: user.id, tier, interval },
+      subscription_data: { metadata: { userId: user.id, tier, interval } },
     });
 
     return NextResponse.json({ url: session.url });

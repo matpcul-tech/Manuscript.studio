@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { inngest } from '@/lib/inngest/client';
-import { checkGenerationLimit, incrementGenerationCount } from '@/lib/checkGenerationLimit';
+import { checkGenerationLimit, checkWholeBookLimit, incrementGenerationCount } from '@/lib/checkGenerationLimit';
 
 // Enqueue route for Quick Draft. Validates auth, checks monthly generation limit,
 // creates the generation_jobs row, fires one Inngest event, and returns the job id.
@@ -55,6 +55,12 @@ export async function POST(req: Request) {
     const limitCheck = await checkGenerationLimit(user.id, user.email);
     if (!limitCheck.allowed) {
       return NextResponse.json({ error: limitCheck.message }, { status: 403 });
+    }
+    if (mode === 'all') {
+      const bookCheck = await checkWholeBookLimit(user.id, user.email);
+      if (!bookCheck.allowed) {
+        return NextResponse.json({ error: bookCheck.message, code: 'whole_book_limit' }, { status: 403 });
+      }
     }
 
     const words = Number(targetWords) || 60000;

@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import { PLAN_FEATURES, priceLabel, type Plan, type Interval } from '@/lib/plans';
+import { IntervalToggle } from '@/components/IntervalToggle';
+import { useYearlyAvailable } from '@/lib/useYearlyAvailable';
 
 // SVG icon primitives -- all 24x24 viewBox, stroke-based
 function IconPencil() {
@@ -108,58 +111,10 @@ const STEPS = [
   },
 ];
 
-const PLANS = [
-  {
-    name: 'Free',
-    tier: 'free',
-    price: '$0',
-    sub: 'forever',
-    items: [
-      '1 project',
-      '1 voice profile',
-      '30 engine calls per day',
-      'Export .docx and .txt',
-      'No credit card required',
-    ],
-    cta: 'Start Free',
-    primary: false,
-  },
-  {
-    name: 'Pro',
-    tier: 'pro',
-    price: '$19',
-    sub: 'per month',
-    badge: 'Most popular',
-    items: [
-      '150 AI generations per month',
-      'Unlimited manuscripts',
-      'Full Publishing Pack',
-      'Title and Subtitle Generator',
-      'All exports (.docx, .txt)',
-      'Voice consistency check',
-      'Sovereign Prose Validator',
-    ],
-    cta: 'Upgrade to Pro',
-    primary: true,
-  },
-  {
-    name: 'Studio',
-    tier: 'studio',
-    price: '$39',
-    sub: 'per month',
-    items: [
-      '500 AI generations per month',
-      'Unlimited manuscripts',
-      'Everything in Pro',
-      'Voice training upload',
-      'Export All zip download',
-      'Whole manuscript line edit',
-      'Priority support',
-      'AI cover backgrounds (coming soon)',
-    ],
-    cta: 'Upgrade to Studio',
-    primary: false,
-  },
+const PLANS: { name: string; tier: Plan; badge?: string; cta: string; primary: boolean }[] = [
+  { name: 'Free', tier: 'free', cta: 'Start Free', primary: false },
+  { name: 'Pro', tier: 'pro', badge: 'Most popular', cta: 'Upgrade to Pro', primary: true },
+  { name: 'Studio', tier: 'studio', cta: 'Upgrade to Studio', primary: false },
 ];
 
 function LiveDemo() {
@@ -393,6 +348,9 @@ function LiveDemo() {
 export default function LandingPage() {
   const router = useRouter();
   const [checkoutLoading, setCheckoutLoading] = useState('');
+  const yearlyOk = useYearlyAvailable();
+  const [interval, setInterval] = useState<Interval>('month');
+  const activeInterval: Interval = yearlyOk ? interval : 'month';
 
   async function startCheckout(tier: string) {
     setCheckoutLoading(tier);
@@ -400,7 +358,7 @@ export default function LandingPage() {
       const res = await fetch('/api/stripe/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier }),
+        body: JSON.stringify({ tier, interval: activeInterval }),
       });
       const data = await res.json();
       if (res.status === 401) { router.push('/login'); return; }
@@ -607,21 +565,23 @@ export default function LandingPage() {
               Simple. Honest. Lower than the alternatives.
             </h2>
             <p className="text-base text-[var(--ink-3)] mt-3">Start free. Upgrade when you're ready.</p>
+            {yearlyOk && <div className="mt-6"><IntervalToggle value={interval} onChange={setInterval} /></div>}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            {PLANS.map(plan => (
+            {PLANS.map(plan => { const pl = priceLabel(plan.tier, activeInterval); return (
               <div key={plan.name} className={`relative p-7 rounded-2xl border-2 bg-white ${plan.primary ? 'border-[var(--blue)] shadow-[var(--shadow-lg)]' : 'border-[var(--line)]'}`}>
                 {plan.badge && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-[var(--blue)] text-white text-[11px] font-bold tracking-wider uppercase">{plan.badge}</div>
                 )}
                 <div className="font-display text-2xl font-bold mb-1">{plan.name}</div>
                 <div className="flex items-baseline gap-1 mb-5">
-                  <span className="font-display text-5xl font-bold">{plan.price}</span>
-                  <span className="text-sm text-[var(--ink-3)]">/ {plan.sub}</span>
+                  <span className="font-display text-5xl font-bold" data-price={plan.tier}>{pl.price}</span>
+                  <span className="text-sm text-[var(--ink-3)]">/ {pl.sub}</span>
                 </div>
+                {pl.note && <div className="text-xs text-[var(--green)] font-semibold -mt-4 mb-5">{pl.note}</div>}
                 <ul className="space-y-2.5 mb-7">
-                  {plan.items.map(it => (
+                  {PLAN_FEATURES[plan.tier].map(it => (
                     <li key={it} className="text-sm text-[var(--ink-2)] flex items-start gap-2">
                       <span className="text-[var(--green)] font-bold mt-0.5 flex-shrink-0">&#10003;</span>
                       <span>{it}</span>
@@ -645,7 +605,7 @@ export default function LandingPage() {
                   </button>
                 )}
               </div>
-            ))}
+            ); })}
           </div>
 
           <div className="text-center mt-8 text-sm text-[var(--ink-4)] max-w-2xl mx-auto">
